@@ -1,0 +1,2126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuraMail</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d0d1a;color:#fff;height:100vh;overflow:hidden;}
+#root{height:100vh;display:flex;}
+
+/* ── Auth ── */
+.auth-bg{flex:1;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 40%,#1a1040 0%,#0a0a18 60%,#080810 100%);}
+.auth-card{background:#111120;border:1px solid rgba(255,255,255,.08);border-radius:18px;
+  padding:44px 40px;width:420px;box-shadow:0 32px 80px rgba(0,0,0,.7);}
+.logo{text-align:center;margin-bottom:30px;}
+.logo-icon{font-size:58px;display:block;margin-bottom:10px;
+  filter:drop-shadow(0 0 24px rgba(91,141,238,.9));}
+.logo h1{font-size:28px;font-weight:900;letter-spacing:-1px;
+  background:linear-gradient(135deg,#fdcb6e,#e17055 40%,#a855f7);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.logo p{color:#444;font-size:13px;margin-top:5px;}
+.tabs{display:flex;gap:4px;background:#080814;border-radius:9px;padding:4px;margin-bottom:24px;}
+.tab{flex:1;padding:9px;text-align:center;border-radius:7px;cursor:pointer;
+  font-size:14px;font-weight:600;color:#555;transition:all .2s;}
+.tab.on{background:linear-gradient(135deg,#5b8dee,#a855f7);color:#fff;}
+.inp{display:block;width:100%;padding:12px 14px;background:#080814;
+  border:1.5px solid rgba(255,255,255,.07);border-radius:9px;color:#eee;
+  font-size:15px;margin-bottom:12px;outline:none;transition:border-color .2s;font-family:inherit;}
+.inp:focus{border-color:#5b8dee;}
+.inp::placeholder{color:#333;}
+.btn-p{display:block;width:100%;padding:13px;
+  background:linear-gradient(135deg,#5b8dee,#a855f7);
+  border:none;border-radius:9px;color:#fff;font-size:15px;font-weight:700;
+  cursor:pointer;letter-spacing:.3px;transition:opacity .2s;font-family:inherit;}
+.btn-p:hover{opacity:.87;}
+.btn-p:disabled{opacity:.5;cursor:not-allowed;}
+.auth-err{color:#ff7070;font-size:12.5px;
+  background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.15);
+  border-radius:7px;padding:10px 13px;margin-bottom:13px;}
+
+/* ── Layout ── */
+.layout{display:flex;flex:1;min-height:0;overflow:hidden;}
+
+/* ── Sidebar ── */
+.sidebar{width:256px;background:#0a0a15;display:flex;flex-direction:column;
+  border-right:1px solid rgba(255,255,255,.04);flex-shrink:0;}
+.sb-head{height:54px;padding:0 16px;display:flex;align-items:center;
+  justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.04);
+  box-shadow:0 2px 8px rgba(0,0,0,.5);}
+.sb-head .brand{font-size:15px;font-weight:900;letter-spacing:-.3px;
+  background:linear-gradient(135deg,#fdcb6e,#e17055 50%,#a855f7);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.sb-add{width:28px;height:28px;border-radius:50%;background:rgba(91,141,238,.12);
+  border:none;color:#5b8dee;font-size:22px;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:background .2s;}
+.sb-add:hover{background:rgba(91,141,238,.28);}
+.sb-scroll{flex:1;overflow-y:auto;padding:8px 0 4px;}
+.sb-scroll::-webkit-scrollbar{width:5px;}
+.sb-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:2px;}
+.sb-label{padding:10px 16px 5px;font-size:10.5px;font-weight:700;
+  color:#3a3a5a;text-transform:uppercase;letter-spacing:1.2px;}
+.ch-row{display:flex;align-items:center;gap:9px;padding:7px 10px;
+  margin:1px 6px;border-radius:7px;cursor:pointer;transition:background .12s;}
+.ch-row:hover{background:rgba(255,255,255,.04);}
+.ch-row.act{background:rgba(91,141,238,.16);}
+.ch-sym{font-size:15px;font-weight:800;color:#3a3a60;width:24px;text-align:center;flex-shrink:0;}
+.ch-row.act .ch-sym{color:#6fa3ff;}
+.ch-nm{font-size:14px;color:#5a5a80;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ch-row.act .ch-nm{color:#dde0f8;font-weight:600;}
+.user-bar{display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:#07070f;border-top:1px solid rgba(255,255,255,.04);}
+.av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:15px;font-weight:800;flex-shrink:0;}
+.u-name{font-size:13.5px;font-weight:700;color:#c0c4e0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.u-tag{font-size:11px;color:#3a3a60;}
+.logout{background:none;border:none;color:#3a3a60;cursor:pointer;
+  font-size:18px;transition:color .2s;padding:2px 3px;line-height:1;}
+.logout:hover{color:#ff7070;}
+
+/* ── Chat ── */
+.chat{flex:1;display:flex;flex-direction:column;background:#111119;min-width:0;}
+.chat-head{height:54px;padding:0 22px;display:flex;align-items:center;gap:12px;
+  border-bottom:1px solid rgba(255,255,255,.04);box-shadow:0 2px 8px rgba(0,0,0,.4);
+  flex-shrink:0;background:#111119;position:relative;}
+.chat-head .h-sym{font-size:19px;color:#3a3a60;}
+.chat-head .h-nm{font-size:16px;font-weight:700;color:#e0e4ff;}
+.chat-head .h-meta{font-size:12px;color:#3a3a60;margin-left:auto;}
+.msgs{flex:1;overflow-y:auto;padding:12px 0 6px;}
+.msgs::-webkit-scrollbar{width:8px;}
+.msgs::-webkit-scrollbar-track{background:transparent;}
+.msgs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:4px;}
+
+.sys-line{text-align:center;padding:5px 20px;font-size:12px;color:#333;font-style:italic;}
+.divider{display:flex;align-items:center;gap:12px;padding:12px 22px;}
+.divider hr{flex:1;border:none;border-top:1px solid rgba(255,255,255,.04);}
+.divider span{font-size:11px;color:#333;white-space:nowrap;}
+
+.msg-grp{display:flex;gap:14px;padding:4px 22px;}
+.msg-grp:hover{background:rgba(255,255,255,.012);}
+.msg-grp:hover .msg-actions,.msg-cont:hover .msg-actions{opacity:1!important;}
+.msg-av{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:16px;font-weight:800;flex-shrink:0;margin-top:2px;}
+.msg-body{flex:1;min-width:0;}
+.msg-hdr{display:flex;align-items:baseline;gap:10px;margin-bottom:3px;}
+.msg-author{font-size:15px;font-weight:700;}
+.msg-ts{font-size:11px;color:#333;}
+.msg-text{font-size:14.5px;color:#b8bcd8;line-height:1.58;word-wrap:break-word;white-space:pre-wrap;}
+.msg-cont{display:flex;gap:14px;padding:1px 22px;}
+.msg-cont:hover{background:rgba(255,255,255,.012);}
+.msg-pad{width:38px;flex-shrink:0;}
+.msg-text-only{font-size:14.5px;color:#b8bcd8;line-height:1.58;word-wrap:break-word;white-space:pre-wrap;flex:1;}
+
+.welcome-box{padding:30px 22px 20px;border-bottom:1px solid rgba(255,255,255,.04);margin-bottom:8px;}
+.welcome-box .w-icon{font-size:56px;margin-bottom:12px;display:block;}
+.welcome-box h2{font-size:22px;font-weight:900;color:#e0e4ff;margin-bottom:6px;}
+.welcome-box p{font-size:14px;color:#333;}
+
+.input-area{padding:0 22px 20px;flex-shrink:0;}
+.input-wrap{display:flex;align-items:flex-end;gap:10px;
+  background:#1a1a28;border-radius:11px;padding:11px 14px;
+  border:1.5px solid rgba(255,255,255,.05);}
+.input-wrap:focus-within{border-color:rgba(91,141,238,.3);}
+.msg-inp{flex:1;background:none;border:none;color:#dde0f8;font-size:14.5px;
+  outline:none;resize:none;min-height:22px;max-height:120px;line-height:1.55;font-family:inherit;}
+.msg-inp::placeholder{color:#2e2e4a;}
+.send-btn{width:34px;height:34px;background:linear-gradient(135deg,#5b8dee,#a855f7);
+  border:none;border-radius:8px;color:#fff;font-size:18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .2s;}
+.send-btn:hover{opacity:.85;}
+.send-btn:disabled{opacity:.3;cursor:not-allowed;}
+
+.img-btn{width:32px;height:32px;background:none;border:none;color:#3a3a60;
+  font-size:20px;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;flex-shrink:0;transition:color .2s;padding:0;}
+.img-btn:hover{color:#5b8dee;}
+.img-preview-wrap{position:relative;display:inline-flex;margin:0 0 10px 4px;}
+.img-preview-thumb{max-height:110px;max-width:200px;border-radius:8px;
+  display:block;border:1px solid rgba(255,255,255,.12);}
+.img-preview-rm{position:absolute;top:-8px;right:-8px;width:20px;height:20px;
+  border-radius:50%;background:#ff4444;border:2px solid #111119;color:#fff;
+  font-size:12px;line-height:1;cursor:pointer;display:flex;
+  align-items:center;justify-content:center;font-weight:700;}
+.img-preview-rm:hover{background:#cc2222;}
+.msg-img{max-width:340px;max-height:260px;border-radius:9px;display:block;
+  margin-top:6px;cursor:zoom-in;border:1px solid rgba(255,255,255,.07);
+  transition:opacity .15s;}
+.msg-img:hover{opacity:.88;}
+.lightbox-bg{position:fixed;inset:0;background:rgba(0,0,0,.93);
+  display:flex;align-items:center;justify-content:center;z-index:500;
+  cursor:zoom-out;animation:lbIn .15s ease;}
+@keyframes lbIn{from{opacity:0}to{opacity:1}}
+.lightbox-img{max-width:90vw;max-height:90vh;border-radius:10px;
+  box-shadow:0 8px 64px rgba(0,0,0,.9);object-fit:contain;}
+.lightbox-close{position:fixed;top:18px;right:22px;background:rgba(255,255,255,.1);
+  border:none;color:#fff;font-size:22px;width:38px;height:38px;border-radius:50%;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:background .15s;}
+.lightbox-close:hover{background:rgba(255,255,255,.2);}
+.upload-prog{font-size:12px;color:#5b8dee;padding:3px 0 6px 2px;display:flex;
+  align-items:center;gap:6px;}
+
+.no-ch{flex:1;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:14px;}
+.no-ch span{font-size:60px;opacity:.3;}
+.no-ch p{font-size:15px;color:#333;}
+
+/* ── Modal ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.78);
+  display:flex;align-items:center;justify-content:center;z-index:200;}
+.modal{background:#171724;border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;padding:30px;width:440px;
+  box-shadow:0 24px 80px rgba(0,0,0,.7);}
+.modal h3{font-size:19px;font-weight:800;margin-bottom:22px;color:#e0e4ff;}
+.modal label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.9px;color:#3a3a60;margin-bottom:7px;}
+.modal .inp{margin-bottom:16px;}
+.type-row{display:flex;gap:10px;margin-bottom:16px;}
+.type-card{flex:1;padding:14px 10px;border:2px solid rgba(255,255,255,.06);
+  border-radius:9px;cursor:pointer;text-align:center;transition:all .15s;}
+.type-card:hover{border-color:rgba(91,141,238,.3);}
+.type-card.on{border-color:#5b8dee;background:rgba(91,141,238,.1);}
+.type-card .ti{font-size:26px;display:block;margin-bottom:5px;}
+.type-card .tn{font-size:12px;font-weight:700;color:#555;}
+.type-card.on .tn{color:#7aa3f1;}
+.tags-wrap{display:flex;flex-wrap:wrap;gap:5px;align-items:center;
+  background:#080814;border:1.5px solid rgba(255,255,255,.07);border-radius:9px;
+  padding:7px 10px;margin-bottom:8px;min-height:42px;cursor:text;}
+.tag{background:rgba(91,141,238,.15);border:1px solid rgba(91,141,238,.3);
+  border-radius:5px;padding:2px 8px;font-size:12.5px;color:#7aa3f1;
+  display:flex;align-items:center;gap:5px;}
+.tag button{background:none;border:none;color:#7aa3f1;cursor:pointer;font-size:15px;
+  line-height:1;padding:0;transition:color .15s;}
+.tag button:hover{color:#ff7070;}
+.tag-inp{background:none;border:none;color:#ccc;outline:none;
+  font-size:13px;flex:1;min-width:80px;font-family:inherit;}
+.modal-foot{display:flex;gap:10px;justify-content:flex-end;margin-top:8px;}
+.btn-cancel{padding:9px 20px;background:rgba(255,255,255,.05);border:none;
+  border-radius:7px;color:#888;cursor:pointer;font-size:14px;font-weight:600;
+  font-family:inherit;transition:background .15s;}
+.btn-cancel:hover{background:rgba(255,255,255,.1);}
+.btn-go{padding:9px 24px;background:linear-gradient(135deg,#5b8dee,#a855f7);
+  border:none;border-radius:7px;color:#fff;cursor:pointer;font-size:14px;
+  font-weight:700;font-family:inherit;transition:opacity .2s;}
+.btn-go:hover{opacity:.88;}
+.modal-err{font-size:12.5px;color:#ff7070;margin-bottom:12px;
+  background:rgba(255,80,80,.08);border-radius:6px;padding:8px 12px;}
+
+/* ── Badges ── */
+.owner-badge{font-size:10px;font-weight:800;padding:1px 7px;border-radius:4px;
+  background:rgba(255,60,60,.15);color:#ff4444;border:1px solid rgba(255,60,60,.3);
+  margin-left:6px;vertical-align:middle;letter-spacing:.6px;text-transform:uppercase;}
+.admin-badge{font-size:10px;font-weight:800;padding:1px 7px;border-radius:4px;
+  background:rgba(91,141,238,.15);color:#5b8dee;border:1px solid rgba(91,141,238,.3);
+  margin-left:6px;vertical-align:middle;letter-spacing:.6px;text-transform:uppercase;}
+.muted-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;
+  background:rgba(255,80,80,.15);color:#ff7070;border:1px solid rgba(255,80,80,.25);
+  margin-left:6px;vertical-align:middle;letter-spacing:.5px;}
+.muted-bar{display:flex;align-items:center;justify-content:center;gap:8px;
+  background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);
+  border-radius:9px;padding:12px 16px;color:#ff7070;font-size:14px;}
+
+/* ── Context menu ── */
+.ctx-menu{position:fixed;background:#1e1e2e;border:1px solid rgba(255,255,255,.1);
+  border-radius:9px;padding:6px;z-index:300;min-width:160px;
+  box-shadow:0 8px 32px rgba(0,0,0,.7);}
+.ctx-item{padding:8px 14px;border-radius:6px;cursor:pointer;font-size:14px;
+  display:flex;align-items:center;gap:9px;transition:background .12s;}
+.ctx-item:hover{background:rgba(255,255,255,.06);}
+.ctx-item.danger{color:#ff7070;}
+.ctx-item.danger:hover{background:rgba(255,80,80,.12);}
+.ctx-item.warn{color:#fdcb6e;}
+.ctx-item.warn:hover{background:rgba(253,203,110,.1);}
+
+/* ── User suggestions ── */
+.user-sug-item{display:flex;align-items:center;gap:10px;padding:8px 12px;
+  border-radius:7px;cursor:pointer;transition:background .12s;}
+.user-sug-item:hover{background:rgba(255,255,255,.06);}
+.sug-list{background:#0d0d1a;border:1px solid rgba(255,255,255,.08);
+  border-radius:8px;margin-top:4px;overflow:hidden;max-height:200px;overflow-y:auto;}
+
+/* ── Members panel ── */
+.members-panel{position:absolute;top:54px;right:0;width:260px;
+  background:#1a1a2a;border:1px solid rgba(255,255,255,.08);border-radius:0 0 12px 12px;
+  padding:14px;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.6);}
+.members-panel h4{font-size:11px;font-weight:700;color:#555;margin-bottom:10px;
+  text-transform:uppercase;letter-spacing:.8px;}
+.member-row{display:flex;align-items:center;gap:10px;padding:7px 4px;border-radius:7px;}
+.member-row:hover{background:rgba(255,255,255,.04);}
+
+/* ── Add-member panel ── */
+.add-member-panel{position:absolute;top:54px;right:0;width:290px;
+  background:#1a1a2a;border:1px solid rgba(255,255,255,.08);border-radius:0 0 12px 12px;
+  padding:14px;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.6);}
+.add-member-panel h4{font-size:11px;font-weight:700;color:#555;margin-bottom:10px;
+  text-transform:uppercase;letter-spacing:.8px;}
+.add-member-inp{display:block;width:100%;padding:9px 12px;background:#0d0d1a;
+  border:1.5px solid rgba(255,255,255,.08);border-radius:8px;color:#eee;
+  font-size:14px;outline:none;font-family:inherit;}
+.add-member-inp:focus{border-color:#5b8dee;}
+.panel-sug{margin-top:6px;max-height:200px;overflow-y:auto;}
+
+/* ── DM ── */
+.dm-badge{display:inline-block;min-width:18px;height:18px;border-radius:9px;
+  background:linear-gradient(135deg,#5b8dee,#a855f7);color:#fff;font-size:11px;
+  font-weight:800;text-align:center;line-height:18px;padding:0 5px;margin-left:auto;flex-shrink:0;}
+.online-dot{width:8px;height:8px;border-radius:50%;background:#43b581;flex-shrink:0;}
+.offline-dot{width:8px;height:8px;border-radius:50%;background:#555;flex-shrink:0;}
+
+/* ── Profile modal ── */
+.color-swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;
+  border:3px solid transparent;transition:border-color .15s;flex-shrink:0;}
+.color-swatch.sel{border-color:#fff;}
+
+/* ── Setup screen ── */
+.setup-steps{color:#555;font-size:14px;line-height:1.9;margin-top:8px;}
+.setup-steps ol{padding-left:20px;}
+.setup-steps li{margin-bottom:2px;}
+.setup-highlight{color:#5b8dee;font-weight:700;}
+.setup-code{color:#a855f7;font-family:monospace;font-size:13px;background:rgba(168,85,247,.08);
+  padding:1px 6px;border-radius:4px;}
+
+/* ── Aura ── */
+.aura-tag{display:inline-flex;align-items:center;font-size:10px;font-weight:800;
+  padding:1px 7px;border-radius:5px;letter-spacing:.5px;text-transform:uppercase;
+  background:linear-gradient(135deg,rgba(253,203,110,.22),rgba(225,112,85,.18));
+  color:#fdcb6e;border:1px solid rgba(253,203,110,.35);vertical-align:middle;}
+.aura-score{font-size:11px;font-weight:700;color:#ccc;vertical-align:middle;}
+.place-badge{font-size:10px;font-weight:800;padding:1px 7px;border-radius:5px;
+  border:1px solid;margin-left:4px;vertical-align:middle;letter-spacing:.3px;}
+.place-1 {color:#fdcb6e;border-color:rgba(253,203,110,.5);background:rgba(253,203,110,.12);}
+.place-2 {color:#b2bec3;border-color:rgba(178,190,195,.4);background:rgba(178,190,195,.1);}
+.place-3 {color:#e17055;border-color:rgba(225,112,85,.4);background:rgba(225,112,85,.1);}
+.place-top{color:#5b8dee;border-color:rgba(91,141,238,.35);background:rgba(91,141,238,.1);}
+.challenge-notif{position:fixed;bottom:24px;right:24px;z-index:600;
+  background:#1e1e30;border:1px solid rgba(253,203,110,.3);border-radius:14px;
+  padding:18px 20px;width:320px;box-shadow:0 12px 48px rgba(0,0,0,.7);
+  animation:slideIn .25s ease;}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.challenge-notif h4{font-size:15px;font-weight:800;color:#e0e4ff;margin-bottom:6px;}
+.challenge-notif p{font-size:13px;color:#888;margin-bottom:14px;}
+.diff-badge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:5px;
+  text-transform:uppercase;letter-spacing:.6px;}
+.diff-easy  {background:rgba(67,181,129,.15);color:#43b581;border:1px solid rgba(67,181,129,.3);}
+.diff-medium{background:rgba(253,203,110,.15);color:#fdcb6e;border:1px solid rgba(253,203,110,.3);}
+.diff-hard  {background:rgba(255,80,80,.15);  color:#ff7070;border:1px solid rgba(255,80,80,.3);}
+.quiz-timer{font-size:13px;font-weight:800;min-width:30px;text-align:right;}
+.quiz-question{font-size:16px;font-weight:700;color:#e0e4ff;line-height:1.5;
+  margin:14px 0 18px;}
+.quiz-choice{padding:11px 14px;border-radius:9px;cursor:pointer;font-size:14px;
+  color:#bbb;border:1.5px solid rgba(255,255,255,.07);margin-bottom:8px;
+  transition:all .15s;background:#0d0d1a;user-select:none;}
+.quiz-choice:hover{border-color:rgba(91,141,238,.4);color:#dde0f8;background:rgba(91,141,238,.06);}
+.quiz-choice.selected{border-color:#5b8dee;background:rgba(91,141,238,.12);color:#fff;}
+.quiz-choice.correct{border-color:#43b581;background:rgba(67,181,129,.12);color:#43b581;}
+.quiz-choice.wrong  {border-color:#ff7070;background:rgba(255,80,80,.1);  color:#ff7070;}
+.quiz-choice.reveal-correct{border-color:#43b581;background:rgba(67,181,129,.1);color:#43b581;}
+.coin-choice{flex:1;padding:14px;border-radius:9px;cursor:pointer;
+  font-size:22px;text-align:center;border:2px solid rgba(255,255,255,.07);
+  transition:all .15s;background:#0d0d1a;}
+.coin-choice:hover{border-color:rgba(253,203,110,.4);}
+.coin-choice.on{border-color:#fdcb6e;background:rgba(253,203,110,.1);}
+.coin-anim{font-size:60px;text-align:center;padding:18px 0;
+  animation:coinSpin .6s ease infinite alternate;}
+@keyframes coinSpin{from{transform:rotateY(0deg) scale(1)}to{transform:rotateY(180deg) scale(1.1)}}
+.lb-row{display:flex;align-items:center;gap:12px;padding:10px 4px;
+  border-bottom:1px solid rgba(255,255,255,.04);}
+.lb-rank{width:28px;font-size:14px;font-weight:800;text-align:center;flex-shrink:0;}
+.lb-aura{color:#fdcb6e;font-weight:800;font-size:14px;white-space:nowrap;}
+.sb-action-btn{display:flex;align-items:center;gap:8px;padding:7px 10px;
+  margin:1px 6px;border-radius:7px;cursor:pointer;transition:background .12s;
+  font-size:13px;color:#5a5a80;border:none;background:none;width:calc(100% - 12px);
+  text-align:left;font-family:inherit;}
+.sb-action-btn:hover{background:rgba(255,255,255,.04);color:#dde0f8;}
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+  .sidebar{
+    position:fixed;top:0;left:0;bottom:0;z-index:400;width:80%;max-width:300px;
+    transform:translateX(-100%);transition:transform .25s ease;
+  }
+  .sidebar.open{transform:translateX(0);}
+  .sidebar-overlay{display:block!important;}
+  .chat{width:100%;}
+  .mob-back{display:flex;}
+  .mob-menu{display:flex!important;}
+  .modal{width:calc(100vw - 32px);padding:22px 18px;}
+  .chat-head{padding:0 10px;}
+  .msgs{padding:8px 0 4px;}
+  .msg-grp,.msg-cont{padding:4px 10px;}
+  .divider{padding:8px 10px;}
+  .input-area{padding:0 10px 16px;}
+  .welcome-box{padding:20px 12px 14px;}
+  .add-member-panel,.members-panel{width:calc(100vw - 28px);right:-14px;}
+  .ctx-menu{position:fixed;left:50%!important;top:auto!important;bottom:20px;
+    transform:translateX(-50%);width:calc(100vw - 40px);min-width:0;}
+  .auth-card{width:calc(100vw - 32px);padding:32px 22px;}
+  .challenge-notif{width:calc(100vw - 32px);right:16px;bottom:16px;}
+}
+@media (min-width: 701px) {
+  .mob-back,.mob-menu{display:none!important;}
+  .sidebar-overlay{display:none!important;}
+}
+.mob-back,.mob-menu{width:36px;height:36px;background:none;border:none;
+  color:#5b8dee;font-size:22px;cursor:pointer;align-items:center;
+  justify-content:center;flex-shrink:0;display:none;}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
+  z-index:399;backdrop-filter:blur(2px);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS & HELPERS
+═══════════════════════════════════════════════════════════════ */
+const OWNER = 'DaKorok';
+
+const AV_COLORS = [
+  '#5b8dee','#a855f7','#43b581','#e17055',
+  '#fdcb6e','#74b9ff','#fd79a8','#00cec9',
+  '#e84393','#26de81','#fc5c65','#fd9644',
+];
+
+function avColor(username) {
+  let h = 0;
+  for (const c of username) h = (h * 31 + c.charCodeAt(0)) % AV_COLORS.length;
+  return AV_COLORS[h];
+}
+
+function genId() {
+  return Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
+}
+
+function fmtTimestamp(ts) {
+  const d = new Date(ts), n = new Date();
+  const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === n.toDateString()) return `Today at ${t}`;
+  const y = new Date(n); y.setDate(n.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return `Yesterday at ${t}`;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + t;
+}
+
+function fmtDateLabel(ts) {
+  const d = new Date(ts), n = new Date();
+  if (d.toDateString() === n.toDateString()) return 'Today';
+  const y = new Date(n); y.setDate(n.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function ordinal(n) {
+  const s = ['th','st','nd','rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function AuraDisplay({ score }) {
+  return (
+    <span style={{display:'inline-flex',alignItems:'center',gap:4,verticalAlign:'middle'}}>
+      <span className="aura-tag">Aura</span>
+      <span className="aura-score">{Number(score||0).toLocaleString()}</span>
+    </span>
+  );
+}
+
+async function hashPw(pw) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function compressImage(file, maxW = 1280, quality = 0.78) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) return reject(new Error('Not an image'));
+    if (file.size > 10 * 1024 * 1024) return reject(new Error('Image must be under 10 MB'));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.onload = ev => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Could not load image'));
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   QUIZ QUESTIONS
+═══════════════════════════════════════════════════════════════ */
+const QUIZ_QUESTIONS = [
+  // Easy — 5 aura
+  { q:'What color is the sky on a clear day?',       choices:['Red','Green','Blue','Purple'],           ans:2, diff:'easy',   reward:5  },
+  { q:'How many days are in a week?',                choices:['5','6','7','8'],                         ans:2, diff:'easy',   reward:5  },
+  { q:'What is 8 × 7?',                             choices:['54','56','58','60'],                     ans:1, diff:'easy',   reward:5  },
+  { q:'How many sides does a triangle have?',        choices:['2','3','4','5'],                         ans:1, diff:'easy',   reward:5  },
+  { q:'What planet do we live on?',                  choices:['Mars','Venus','Earth','Jupiter'],        ans:2, diff:'easy',   reward:5  },
+  { q:'What is the opposite of hot?',                choices:['Warm','Cool','Cold','Icy'],              ans:2, diff:'easy',   reward:5  },
+  { q:'How many hours are in a day?',                choices:['12','20','24','48'],                     ans:2, diff:'easy',   reward:5  },
+  { q:'What comes after Tuesday?',                   choices:['Monday','Thursday','Wednesday','Friday'],ans:2, diff:'easy',   reward:5  },
+  // Medium — 15 aura
+  { q:'What is the capital of France?',              choices:['London','Berlin','Paris','Madrid'],      ans:2, diff:'medium', reward:15 },
+  { q:'How many sides does a hexagon have?',         choices:['5','6','7','8'],                        ans:1, diff:'medium', reward:15 },
+  { q:'What is the square root of 144?',             choices:['10','11','12','13'],                    ans:2, diff:'medium', reward:15 },
+  { q:'What is the largest ocean on Earth?',         choices:['Atlantic','Indian','Arctic','Pacific'],  ans:3, diff:'medium', reward:15 },
+  { q:'In what year did the Titanic sink?',          choices:['1910','1912','1914','1916'],             ans:1, diff:'medium', reward:15 },
+  { q:'How many planets are in our solar system?',   choices:['7','8','9','10'],                       ans:1, diff:'medium', reward:15 },
+  { q:'What gas do plants absorb from the air?',     choices:['Oxygen','Nitrogen','CO₂','Hydrogen'],   ans:2, diff:'medium', reward:15 },
+  { q:'What is the longest river in the world?',     choices:['Amazon','Congo','Yangtze','Nile'],      ans:3, diff:'medium', reward:15 },
+  // Hard — 35 aura
+  { q:'What is the chemical symbol for gold?',       choices:['Go','Gd','Au','Ag'],                    ans:2, diff:'hard',   reward:35 },
+  { q:'Who wrote "The Divine Comedy"?',              choices:['Virgil','Dante Alighieri','Homer','Petrarch'], ans:1, diff:'hard', reward:35 },
+  { q:'What year did World War I end?',              choices:['1916','1917','1918','1919'],             ans:2, diff:'hard',   reward:35 },
+  { q:'Speed of light (approx)?',                   choices:['200,000 km/s','299,792 km/s','350,000 km/s','400,000 km/s'], ans:1, diff:'hard', reward:35 },
+  { q:'How many bones in the adult human body?',    choices:['196','206','216','226'],                 ans:1, diff:'hard',   reward:35 },
+  { q:'Which element has atomic number 79?',         choices:['Silver','Platinum','Gold','Copper'],    ans:2, diff:'hard',   reward:35 },
+  { q:'What is the powerhouse of the cell?',         choices:['Nucleus','Ribosome','Mitochondria','Golgi'], ans:2, diff:'hard', reward:35 },
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   FIREBASE CONFIG
+═══════════════════════════════════════════════════════════════ */
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBx4BtqntyZuL2BLE-8OGVRf8rEqG-C9jM",
+  authDomain:        "arrowmail-4fbea.firebaseapp.com",
+  databaseURL:       "https://arrowmail-4fbea-default-rtdb.firebaseio.com",
+  projectId:         "arrowmail-4fbea",
+  storageBucket:     "arrowmail-4fbea.firebasestorage.app",
+  messagingSenderId: "18899897828",
+  appId:             "1:18899897828:web:bd6044fe5dfe61a0b90bf1",
+};
+const SETUP_NEEDED = FIREBASE_CONFIG.apiKey === "YOUR_API_KEY";
+let FB;
+if (!SETUP_NEEDED) {
+  if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+  FB = firebase.database();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MESSAGE GROUPING
+═══════════════════════════════════════════════════════════════ */
+function groupMessages(msgs) {
+  const out = [];
+  let cur = null;
+  for (const m of msgs) {
+    if (m.sys) { out.push({ sys: true, msg: m }); cur = null; continue; }
+    const prev = cur && cur.msgs[cur.msgs.length - 1];
+    if (cur && cur.author === m.author && m.ts - prev.ts < 5 * 60 * 1000) {
+      cur.msgs.push(m);
+    } else {
+      cur = { author: m.author, msgs: [m] };
+      out.push(cur);
+    }
+  }
+  return out;
+}
+
+function insertDividers(groups) {
+  const out = [];
+  let lastDate = '';
+  for (const g of groups) {
+    const ts = g.sys ? g.msg.ts : g.msgs[0].ts;
+    const label = fmtDateLabel(ts);
+    if (label !== lastDate) { out.push({ divider: true, label }); lastDate = label; }
+    out.push(g);
+  }
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SETUP SCREEN
+═══════════════════════════════════════════════════════════════ */
+function SetupScreen() {
+  return (
+    <div className="auth-bg">
+      <div className="auth-card">
+        <div className="logo">
+          <span className="logo-icon">✨</span>
+          <h1>AuraMail</h1>
+          <p>One-time Firebase setup required</p>
+        </div>
+        <div className="setup-steps">
+          <ol>
+            <li>Go to <span className="setup-highlight">console.firebase.google.com</span></li>
+            <li>Create a project → Add Web App → copy the config</li>
+            <li>Build → Realtime Database → Create database in <em>Test Mode</em></li>
+            <li>Open <strong>ArrowsMail.html</strong> and paste values into <span className="setup-code">FIREBASE_CONFIG</span></li>
+          </ol>
+          <p style={{ marginTop:16, color:'#3a3a5a', fontSize:13 }}>
+            After setup, anyone in the world can open this file and chat in real-time.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   AUTH SCREEN
+═══════════════════════════════════════════════════════════════ */
+function AuthScreen({ onLogin }) {
+  const [tab,  setTab]  = useState('login');
+  const [user, setUser] = useState('');
+  const [pass, setPass] = useState('');
+  const [name, setName] = useState('');
+  const [err,  setErr]  = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async e => {
+    e.preventDefault(); setErr(''); setBusy(true);
+    try {
+      if (tab === 'signup') {
+        if (user.length < 3)                    return setErr('Username must be at least 3 characters');
+        if (user.length > 20)                   return setErr('Username must be 20 characters or fewer');
+        if (!/^[a-zA-Z0-9_ ]+$/.test(user))    return setErr('Letters, numbers, spaces, and underscores only');
+        if (pass.length < 6)                    return setErr('Password must be at least 6 characters');
+
+        const [bannedSnap, existsSnap] = await Promise.all([
+          FB.ref('banned/' + user).once('value'),
+          FB.ref('users/' + user).once('value'),
+        ]);
+        if (bannedSnap.val())    return setErr('This username is banned');
+        if (existsSnap.exists()) return setErr('Username already taken');
+
+        const hashed = await hashPw(pass);
+        await FB.ref('users/' + user).set({
+          username: user,
+          display:  name.trim() || user,
+          password: hashed,
+          color:    AV_COLORS[Math.floor(Math.random() * AV_COLORS.length)],
+          joined:   Date.now(),
+        });
+        await FB.ref('aura/' + user).transaction(cur => cur === null ? 5 : cur);
+        localStorage.setItem('am_sess', user);
+        onLogin(user);
+      } else {
+        const snap = await FB.ref('users/' + user).once('value');
+        const u = snap.val();
+        if (!u) return setErr('Invalid username or password');
+
+        const bannedSnap = await FB.ref('banned/' + user).once('value');
+        if (bannedSnap.val()) return setErr('You have been banned from ArrowsMail');
+
+        const hashed = await hashPw(pass);
+        if (u.password !== hashed) return setErr('Invalid username or password');
+
+        await FB.ref('aura/' + user).transaction(cur => cur === null ? 5 : cur);
+        localStorage.setItem('am_sess', user);
+        onLogin(user);
+      }
+    } catch(e) {
+      console.error(e);
+      setErr('Connection error — check your Firebase config.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="auth-bg">
+      <div className="auth-card">
+        <div className="logo">
+          <span className="logo-icon">✨</span>
+          <h1>AuraMail</h1>
+          <p>Connect with anyone, anywhere</p>
+        </div>
+
+        <div className="tabs">
+          {[['login','Sign In'],['signup','Create Account']].map(([t,label]) => (
+            <div key={t} className={`tab${tab===t?' on':''}`}
+                 onClick={() => { setTab(t); setErr(''); }}>
+              {label}
+            </div>
+          ))}
+        </div>
+
+        {err && <div className="auth-err">⚠ {err}</div>}
+
+        <form onSubmit={submit}>
+          {tab === 'signup' && (
+            <input className="inp" placeholder="Display name (optional)"
+                   value={name} onChange={e => setName(e.target.value)} />
+          )}
+          <input className="inp" placeholder="Username" autoFocus required
+                 value={user} onChange={e => setUser(e.target.value)} />
+          <input className="inp" type="password" placeholder="Password" required
+                 value={pass} onChange={e => setPass(e.target.value)} />
+          <button className="btn-p" type="submit" disabled={busy}>
+            {busy ? 'Please wait…' : tab === 'login' ? 'Sign In →' : 'Create Account →'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CREATE CHANNEL MODAL
+═══════════════════════════════════════════════════════════════ */
+function CreateModal({ onClose, onCreate, allUsers, me }) {
+  const [type,    setType]    = useState('public');
+  const [chName,  setChName]  = useState('');
+  const [mInp,    setMInp]    = useState('');
+  const [members, setMembers] = useState([]);
+  const [err,     setErr]     = useState('');
+
+  const suggestions = mInp.trim().length > 0
+    ? Object.keys(allUsers).filter(k =>
+        (k.toLowerCase().includes(mInp.trim().toLowerCase()) ||
+         (allUsers[k].display||'').toLowerCase().includes(mInp.trim().toLowerCase())) &&
+        k !== me && !members.includes(k))
+    : [];
+
+  const addMember = username => {
+    if (username === me)             return setErr("That's you — you're already in the group");
+    if (members.includes(username))  return setErr(`${username} already added`);
+    setMembers(p => [...p, username]); setMInp(''); setErr('');
+  };
+
+  const onMInpKey = e => {
+    if (e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    if (suggestions.length > 0) { addMember(suggestions[0]); return; }
+    const match = Object.keys(allUsers).find(k => k.toLowerCase() === mInp.trim().toLowerCase());
+    if (!match) return setErr(`User "${mInp.trim()}" not found`);
+    addMember(match);
+  };
+
+  const create = () => {
+    if (!chName.trim())                      return setErr('Please enter a channel name');
+    if (type === 'group' && !members.length) return setErr('Add at least one member for a group chat');
+    onCreate(chName.trim(), type, members);
+  };
+
+  return (
+    <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <h3>✨ New Channel</h3>
+
+        <label>Type</label>
+        <div className="type-row">
+          {[['public','#','Public Channel'],['group','👥','Group Chat']].map(([t,icon,label]) => (
+            <div key={t} className={`type-card${type===t?' on':''}`} onClick={() => setType(t)}>
+              <span className="ti">{icon}</span>
+              <span className="tn">{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <label>Name</label>
+        <input className="inp" autoFocus
+               placeholder={type === 'group' ? 'my-group' : 'channel-name'}
+               value={chName}
+               onChange={e => setChName(e.target.value.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,''))} />
+
+        {type === 'group' && <>
+          <label>Add Members</label>
+          <div className="tags-wrap"
+               onClick={e => e.currentTarget.querySelector('.tag-inp').focus()}>
+            {members.map(m => (
+              <div key={m} className="tag">
+                {(allUsers[m] && allUsers[m].display) || m}
+                <button onClick={() => setMembers(p => p.filter(x => x !== m))}>×</button>
+              </div>
+            ))}
+            <input className="tag-inp" placeholder="Search users…"
+                   value={mInp} onChange={e => setMInp(e.target.value)} onKeyDown={onMInpKey} />
+          </div>
+          {suggestions.length > 0 && (
+            <div className="sug-list">
+              {suggestions.slice(0, 5).map(u => {
+                const disp = (allUsers[u] && allUsers[u].display) || u;
+                return (
+                  <div key={u} className="user-sug-item" onClick={() => addMember(u)}>
+                    <div style={{ width:26,height:26,borderRadius:'50%',background:avColor(u),
+                      display:'flex',alignItems:'center',justifyContent:'center',
+                      fontSize:12,fontWeight:800,flexShrink:0 }}>
+                      {disp[0].toUpperCase()}
+                    </div>
+                    <span style={{ fontSize:14,color:'#ccc' }}>{disp}</span>
+                    {disp !== u && <span style={{ color:'#3a3a5a',fontSize:12 }}>@{u}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>}
+
+        {err && <div className="modal-err">⚠ {err}</div>}
+
+        <div className="modal-foot">
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-go" onClick={create}>Create</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   QUIZ MODAL
+═══════════════════════════════════════════════════════════════ */
+function QuizModal({ question, onFinish }) {
+  const [selected, setSelected] = useState(null);
+  const [revealed, setRevealed] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(25);
+  const won = revealed && selected === question.ans;
+
+  useEffect(() => {
+    if (revealed) return;
+    const t = setInterval(() => {
+      setTimeLeft(p => {
+        if (p <= 1) { clearInterval(t); setRevealed(true); return 0; }
+        return p - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [revealed]);
+
+  const submit = () => { if (selected === null) return; setRevealed(true); };
+
+  return (
+    <div className="modal-bg">
+      <div className="modal" style={{maxWidth:460}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+          <span className={`diff-badge diff-${question.diff}`}>{question.diff}</span>
+          <span style={{color:'#fdcb6e',fontWeight:800,fontSize:13,marginLeft:'auto'}}>✨ +{question.reward} aura</span>
+          <span className="quiz-timer" style={{color:timeLeft<6?'#ff7070':'#888'}}>{timeLeft}s</span>
+        </div>
+        <div className="quiz-question">{question.q}</div>
+        {question.choices.map((c, i) => {
+          let cls = 'quiz-choice';
+          if (revealed) {
+            if (i === question.ans) cls += ' correct';
+            else if (i === selected) cls += ' wrong';
+          } else if (selected === i) cls += ' selected';
+          return <div key={i} className={cls} onClick={() => !revealed && setSelected(i)}>{c}</div>;
+        })}
+        {!revealed
+          ? <button className="btn-go" style={{width:'100%',marginTop:4}} disabled={selected===null} onClick={submit}>Submit</button>
+          : <div style={{marginTop:12,textAlign:'center'}}>
+              {won
+                ? <div style={{color:'#43b581',fontSize:16,fontWeight:800,marginBottom:10}}>✅ Correct! +{question.reward} aura earned!</div>
+                : <div style={{color:'#ff7070',fontSize:16,fontWeight:800,marginBottom:10}}>❌ Wrong! The answer was: {question.choices[question.ans]}</div>
+              }
+              <button className="btn-go" onClick={() => onFinish(won ? question.reward : 0)}>Collect & Continue</button>
+            </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COIN FLIP MODAL
+═══════════════════════════════════════════════════════════════ */
+function CoinFlipModal({ myAura, onClose, onResult }) {
+  const [choice,   setChoice]   = useState('heads');
+  const [bet,      setBet]      = useState(Math.min(10, myAura));
+  const [flipping, setFlipping] = useState(false);
+  const [result,   setResult]   = useState(null);
+
+  const flip = () => {
+    if (bet <= 0 || bet > myAura || flipping) return;
+    setFlipping(true); setResult(null);
+    setTimeout(() => {
+      const coin = Math.random() < 0.5 ? 'heads' : 'tails';
+      const won  = coin === choice;
+      setResult({ coin, won });
+      setFlipping(false);
+      onResult(won ? bet : -bet);
+    }, 1600);
+  };
+
+  return (
+    <div className="modal-bg" onClick={e => e.target===e.currentTarget && !flipping && onClose()}>
+      <div className="modal" style={{maxWidth:400,textAlign:'center'}}>
+        <h3>🪙 Aura Coin Flip</h3>
+        <p style={{color:'#888',fontSize:13,marginBottom:18}}>Your aura: <span style={{color:'#fdcb6e',fontWeight:800}}><AuraDisplay score={myAura}/></span></p>
+
+        {flipping && <div className="coin-anim">{choice==='heads'?'🌕':'🌑'}</div>}
+        {result && !flipping && (
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:50,marginBottom:8}}>{result.coin==='heads'?'🌕':'🌑'}</div>
+            <div style={{fontSize:18,fontWeight:800,color:result.won?'#43b581':'#ff7070'}}>
+              {result.won ? `+${bet} ✨ You won!` : `-${bet} ✨ You lost!`}
+            </div>
+          </div>
+        )}
+
+        {!flipping && !result && <>
+          <label style={{display:'block',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:.9,color:'#3a3a60',marginBottom:8}}>Pick a side</label>
+          <div style={{display:'flex',gap:10,marginBottom:18}}>
+            <div className={`coin-choice${choice==='heads'?' on':''}`} onClick={()=>setChoice('heads')}>🌕<div style={{fontSize:12,marginTop:4,color:'#888'}}>Heads</div></div>
+            <div className={`coin-choice${choice==='tails'?' on':''}`} onClick={()=>setChoice('tails')}>🌑<div style={{fontSize:12,marginTop:4,color:'#888'}}>Tails</div></div>
+          </div>
+          <label style={{display:'block',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:.9,color:'#3a3a60',marginBottom:8}}>Bet amount</label>
+          <input className="inp" type="number" min={1} max={myAura} value={bet}
+            onChange={e=>setBet(Math.min(myAura,Math.max(1,+e.target.value)))} style={{textAlign:'center',marginBottom:4}} />
+          <div style={{display:'flex',gap:6,justifyContent:'center',marginBottom:16}}>
+            {[10,25,50,100].map(v=>(
+              <span key={v} style={{cursor:'pointer',fontSize:12,padding:'2px 8px',borderRadius:5,background:'rgba(255,255,255,.06)',color:'#888'}}
+                onClick={()=>setBet(Math.min(myAura,v))}>{v}</span>
+            ))}
+            <span style={{cursor:'pointer',fontSize:12,padding:'2px 8px',borderRadius:5,background:'rgba(255,255,255,.06)',color:'#888'}}
+              onClick={()=>setBet(myAura)}>ALL</span>
+          </div>
+        </>}
+
+        <div className="modal-foot" style={{justifyContent:'center'}}>
+          {!flipping && !result && <>
+            <button className="btn-cancel" onClick={onClose}>Cancel</button>
+            <button className="btn-go" disabled={bet<=0||bet>myAura} onClick={flip}>🪙 Flip!</button>
+          </>}
+          {result && !flipping && <button className="btn-go" onClick={onClose}>Done</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LEADERBOARD
+═══════════════════════════════════════════════════════════════ */
+function Leaderboard({ auraMap, userData, me, onClose }) {
+  const sorted = Object.entries(auraMap).sort((a,b)=>b[1]-a[1]).slice(0,25);
+  const myRank = sorted.findIndex(([u])=>u===me) + 1;
+  const medals = ['🥇','🥈','🥉'];
+
+  return (
+    <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal" style={{maxWidth:480}}>
+        <h3>✨ Aura Leaderboard</h3>
+        {myRank > 0 && (
+          <div style={{marginBottom:14,padding:'8px 12px',background:'rgba(253,203,110,.06)',
+            border:'1px solid rgba(253,203,110,.15)',borderRadius:8,fontSize:13,color:'#fdcb6e'}}>
+            You are ranked <strong>{ordinal(myRank)}</strong> with <AuraDisplay score={auraMap[me]||0} />
+          </div>
+        )}
+        <div style={{maxHeight:380,overflowY:'auto'}}>
+          {sorted.map(([username, score], i) => {
+            const u = userData[username]||{};
+            const disp = u.display||username;
+            const col  = u.color  ||avColor(username);
+            const isMe = username === me;
+            return (
+              <div key={username} className="lb-row">
+                <span className="lb-rank" style={{color:i<3?['#fdcb6e','#b2bec3','#e17055'][i]:'#555',fontSize:i<3?18:13}}>
+                  {i < 3 ? medals[i] : ordinal(i+1)}
+                </span>
+                <div style={{width:32,height:32,borderRadius:'50%',background:col,display:'flex',
+                  alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,flexShrink:0}}>
+                  {disp[0].toUpperCase()}
+                </div>
+                <span style={{flex:1,color:isMe?'#6fa3ff':'#ccc',fontWeight:isMe?700:400,fontSize:14}}>
+                  {disp}{isMe&&<span style={{color:'#3a3a6a',fontSize:12}}> (you)</span>}
+                </span>
+                <AuraDisplay score={score} />
+              </div>
+            );
+          })}
+          {sorted.length === 0 && <div style={{color:'#444',textAlign:'center',padding:20}}>No aura earned yet!</div>}
+        </div>
+        <div className="modal-foot" style={{marginTop:14}}>
+          <button className="btn-cancel" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ADMIN QUIZ SEND MODAL
+═══════════════════════════════════════════════════════════════ */
+function AdminQuizSendModal({ target, targetData, onClose, onSend }) {
+  const [diff,   setDiff]   = useState('medium');
+  const [picked, setPicked] = useState(null);
+  const pool = QUIZ_QUESTIONS.filter(q => q.diff === diff);
+  const question = picked !== null ? pool[picked] : null;
+
+  return (
+    <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{maxWidth:500}}>
+        <h3>📝 Send Quiz to {(targetData && targetData.display) || target}</h3>
+
+        <label>Difficulty</label>
+        <div style={{display:'flex',gap:8,marginBottom:16}}>
+          {['easy','medium','hard'].map(d => (
+            <div key={d} className={`type-card${diff===d?' on':''}`} style={{padding:'8px 10px'}} onClick={()=>{setDiff(d);setPicked(null);}}>
+              <span className={`diff-badge diff-${d}`}>{d}</span>
+              <div style={{fontSize:11,color:'#555',marginTop:4}}>{d==='easy'?'5':d==='medium'?'15':'35'} Aura</div>
+            </div>
+          ))}
+        </div>
+
+        <label>Pick a Question</label>
+        <div style={{maxHeight:220,overflowY:'auto',marginBottom:14}}>
+          {pool.map((q, i) => (
+            <div key={i} onClick={() => setPicked(i)}
+              style={{padding:'9px 12px',borderRadius:8,marginBottom:6,cursor:'pointer',
+                border:`1.5px solid ${picked===i?'#5b8dee':'rgba(255,255,255,.07)'}`,
+                background:picked===i?'rgba(91,141,238,.08)':'#0d0d1a',
+                fontSize:13,color:picked===i?'#dde0f8':'#888',transition:'all .15s'}}>
+              {q.q}
+            </div>
+          ))}
+        </div>
+
+        {question && (
+          <div style={{padding:'10px 12px',borderRadius:8,background:'rgba(253,203,110,.06)',
+            border:'1px solid rgba(253,203,110,.2)',marginBottom:14,fontSize:13,color:'#fdcb6e'}}>
+            Reward: {question.reward} Aura · {question.choices.length} choices
+          </div>
+        )}
+
+        <div className="modal-foot">
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-go" disabled={!question} onClick={() => { onSend(target, question); onClose(); }}>
+            Send Quiz →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHALLENGE NOTIFICATION (incoming)
+═══════════════════════════════════════════════════════════════ */
+function ChallengeNotification({ challenge, userData, myAura, onAccept, onDecline }) {
+  const from = challenge.from;
+  const ud   = userData[from] || {};
+  const disp = ud.display || from;
+  const col  = ud.color   || avColor(from);
+  return (
+    <div className="challenge-notif">
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+        <div style={{width:36,height:36,borderRadius:'50%',background:col,display:'flex',
+          alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:800,flexShrink:0}}>
+          {disp[0].toUpperCase()}
+        </div>
+        <div>
+          <h4 style={{margin:0}}>🪙 Coin Flip Challenge!</h4>
+          <p style={{margin:0,fontSize:12,color:'#888'}}>{disp} challenged you</p>
+        </div>
+      </div>
+      <p style={{margin:'0 0 14px'}}>
+        <span style={{color:'#fdcb6e',fontWeight:700}}>{disp}</span> wants to flip for{' '}
+        <span style={{color:'#fdcb6e',fontWeight:700}}>{challenge.amount} Aura</span>.
+        You have <span style={{color:'#fdcb6e',fontWeight:700}}>{myAura} Aura</span>.
+      </p>
+      <div style={{display:'flex',gap:8}}>
+        <button className="btn-cancel" style={{flex:1}} onClick={onDecline}>Decline</button>
+        <button className="btn-go" style={{flex:1}} disabled={myAura < challenge.amount} onClick={onAccept}>
+          {myAura < challenge.amount ? 'Not enough Aura' : 'Accept!'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHALLENGE SEND MODAL
+═══════════════════════════════════════════════════════════════ */
+function ChallengeSendModal({ target, targetData, myAura, onClose, onSend }) {
+  const [bet, setBet] = useState(Math.min(10, myAura));
+  const disp = (targetData && targetData.display) || target;
+  const col  = (targetData && targetData.color)   || avColor(target);
+
+  return (
+    <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{maxWidth:380,textAlign:'center'}}>
+        <h3>🪙 Challenge to Coin Flip</h3>
+        <div style={{display:'flex',alignItems:'center',gap:12,justifyContent:'center',marginBottom:16}}>
+          <div style={{width:44,height:44,borderRadius:'50%',background:col,display:'flex',
+            alignItems:'center',justifyContent:'center',fontSize:20,fontWeight:800}}>
+            {disp[0].toUpperCase()}
+          </div>
+          <div style={{textAlign:'left'}}>
+            <div style={{color:'#e0e4ff',fontWeight:700}}>{disp}</div>
+            <div style={{fontSize:12,color:'#888'}}>@{target}</div>
+          </div>
+        </div>
+        <p style={{color:'#888',fontSize:13,marginBottom:4}}>Your Aura: <span style={{color:'#fdcb6e',fontWeight:800}}>{myAura}</span></p>
+        <p style={{color:'#555',fontSize:12,marginBottom:16}}>Winner takes the bet from the loser. Coin is 50/50.</p>
+
+        <label style={{display:'block',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:.9,color:'#3a3a60',marginBottom:8}}>Bet amount</label>
+        <input className="inp" type="number" min={1} max={myAura} value={bet}
+          onChange={e => setBet(Math.min(myAura, Math.max(1, +e.target.value)))} style={{textAlign:'center',marginBottom:6}} />
+        <div style={{display:'flex',gap:6,justifyContent:'center',marginBottom:18}}>
+          {[5,10,25,50].map(v=>(
+            <span key={v} onClick={()=>setBet(Math.min(myAura,v))}
+              style={{cursor:'pointer',fontSize:12,padding:'2px 8px',borderRadius:5,background:'rgba(255,255,255,.06)',color:'#888'}}>
+              {v}
+            </span>
+          ))}
+          <span onClick={()=>setBet(myAura)}
+            style={{cursor:'pointer',fontSize:12,padding:'2px 8px',borderRadius:5,background:'rgba(255,255,255,.06)',color:'#888'}}>ALL</span>
+        </div>
+        <div className="modal-foot" style={{justifyContent:'center'}}>
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-go" disabled={bet<=0||bet>myAura} onClick={()=>{onSend(target,bet);onClose();}}>
+            Send Challenge 🪙
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PROFILE MODAL
+═══════════════════════════════════════════════════════════════ */
+function ProfileModal({ me, userData, onClose, onSave }) {
+  const u = userData[me] || {};
+  const [dispName, setDispName] = useState(u.display || me);
+  const [color, setColor]       = useState(u.color   || avColor(me));
+  const [busy, setBusy]         = useState(false);
+  const save = async () => {
+    setBusy(true);
+    await onSave({ display: dispName.trim() || me, color });
+    onClose();
+    setBusy(false);
+  };
+  return (
+    <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal">
+        <h3>✏ Edit Profile</h3>
+        <label>Display Name</label>
+        <input className="inp" value={dispName} onChange={e=>setDispName(e.target.value)} maxLength={30} />
+        <label>Avatar Color</label>
+        <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:18}}>
+          {AV_COLORS.map(c=>(
+            <div key={c} className={`color-swatch${color===c?' sel':''}`}
+              style={{background:c}} onClick={()=>setColor(c)} />
+          ))}
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+          <div className="av" style={{background:color,width:44,height:44,fontSize:20}}>
+            {(dispName||me)[0].toUpperCase()}
+          </div>
+          <span style={{color:'#888',fontSize:13}}>Preview</span>
+        </div>
+        <div className="modal-foot">
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-go" disabled={busy} onClick={save}>{busy?'Saving…':'Save'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════════════════════════ */
+function Sidebar({ channels, activeId, onSelect, onNew, me, userData, onLogout, isOpen, presence, onOpenProfile, onStartDM, unread, auraMap, onOpenLeaderboard, onOpenCoinFlip }) {
+  const pub = channels.filter(c => c.type === 'public');
+  const grp = channels.filter(c => c.type === 'group');
+  const dms  = channels.filter(c => c.type === 'dm');
+  const user    = userData[me] || {};
+  const color   = user.color   || avColor(me);
+  const display = user.display || me;
+  const isOnline = u => !!(presence && presence[u]);
+
+  return (
+    <div className={`sidebar${isOpen ? ' open' : ''}`}>
+      <div className="sb-head">
+        <span className="brand">✨ AuraMail</span>
+        <button className="sb-add" onClick={onNew} title="New channel">+</button>
+      </div>
+
+      <div className="sb-scroll">
+        <div className="sb-label">Channels</div>
+        {pub.map(c => (
+          <div key={c.id} className={`ch-row${activeId===c.id?' act':''}`}
+               onClick={() => onSelect(c.id)}>
+            <span className="ch-sym">#</span>
+            <span className="ch-nm">{c.name}</span>
+            {unread[c.id]>0&&<span className="dm-badge">{unread[c.id]>9?'9+':unread[c.id]}</span>}
+          </div>
+        ))}
+
+        {grp.length > 0 && <>
+          <div className="sb-label" style={{ marginTop: 14 }}>Group Chats</div>
+          {grp.map(c => (
+            <div key={c.id} className={`ch-row${activeId===c.id?' act':''}`}
+                 onClick={() => onSelect(c.id)}>
+              <span className="ch-sym" style={{ fontSize: 13 }}>👥</span>
+              <span className="ch-nm">{c.name}</span>
+              {unread[c.id]>0&&<span className="dm-badge">{unread[c.id]>9?'9+':unread[c.id]}</span>}
+            </div>
+          ))}
+        </>}
+
+        {dms.length > 0 && <>
+          <div className="sb-label" style={{ marginTop: 14 }}>Direct Messages</div>
+          {dms.map(c => {
+            const other = c.members.find(u=>u!==me) || c.name;
+            const ud = userData[other]||{};
+            const disp = ud.display||other;
+            const col  = ud.color  ||avColor(other);
+            return (
+              <div key={c.id} className={`ch-row${activeId===c.id?' act':''}`}
+                   onClick={() => onSelect(c.id)}>
+                <div style={{position:'relative',width:22,flexShrink:0}}>
+                  <div style={{width:22,height:22,borderRadius:'50%',background:col,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    fontSize:11,fontWeight:800}}>
+                    {disp[0].toUpperCase()}
+                  </div>
+                  {isOnline(other)&&<div style={{position:'absolute',bottom:-1,right:-2,width:8,height:8,borderRadius:'50%',background:'#43b581',border:'1.5px solid #0a0a15'}}/>}
+                </div>
+                <span className="ch-nm">{disp}</span>
+                {unread[c.id]>0&&<span className="dm-badge">{unread[c.id]>9?'9+':unread[c.id]}</span>}
+              </div>
+            );
+          })}
+        </>}
+
+        <div className="sb-label" style={{ marginTop: 14 }}>Online Users</div>
+        {Object.keys(userData).filter(u=>u!==me&&isOnline(u)).slice(0,12).map(u=>{
+          const ud=userData[u]||{};
+          const disp=ud.display||u;
+          const col=ud.color||avColor(u);
+          return (
+            <div key={u} className="ch-row" onClick={()=>onStartDM(u)}
+                 title={`DM @${u}`}>
+              <div style={{position:'relative',width:22,flexShrink:0}}>
+                <div style={{width:22,height:22,borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800}}>{disp[0].toUpperCase()}</div>
+                <div style={{position:'absolute',bottom:-1,right:-2,width:8,height:8,borderRadius:'50%',background:'#43b581',border:'1.5px solid #0a0a15'}}/>
+              </div>
+              <span className="ch-nm">{disp}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="user-bar">
+        <div className="av" style={{ background: color, cursor:'pointer' }} onClick={onOpenProfile} title="Edit profile">
+          {display[0].toUpperCase()}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="u-name">
+            {display}
+            {me === OWNER && <span className="owner-badge">Owner</span>}
+          </div>
+          <div className="u-tag">@{me} · <AuraDisplay score={auraMap[me]||0} /></div>
+        </div>
+        <button className="logout" onClick={onLogout} title="Sign out">↪</button>
+      </div>
+      <div style={{padding:'6px 6px 4px',borderTop:'1px solid rgba(255,255,255,.04)'}}>
+        <button className="sb-action-btn" onClick={onOpenLeaderboard}>✨ Aura Leaderboard</button>
+        <button className="sb-action-btn" onClick={onOpenCoinFlip}>🪙 Coin Flip</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHAT AREA
+═══════════════════════════════════════════════════════════════ */
+function ChatArea({ channel, messages, onSend, me, userData, muted, admins, onMute, onBan, onPromote, onAddMember, allUsers, onOpenSidebar, onEditMsg, onDeleteMsg, onReact, presence, auraMap, onChallenge, onSendQuiz, leaderboardRanks }) {
+  const [inp,           setInp]           = useState('');
+  const [ctx,           setCtx]           = useState(null);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [showMembers,   setShowMembers]   = useState(false);
+  const [addInp,        setAddInp]        = useState('');
+  const [imgPreview,    setImgPreview]    = useState(null);
+  const [uploading,     setUploading]     = useState(false);
+  const [lightbox,      setLightbox]      = useState(null);
+  const [editingId,     setEditingId]     = useState(null);
+  const [editText,      setEditText]      = useState('');
+  const [emojiTarget,   setEmojiTarget]   = useState(null);
+  const bottomRef        = useRef(null);
+  const taRef            = useRef(null);
+  const menuRef           = useRef(null);
+  const addMemberPanelRef  = useRef(null);
+  const membersPanelRef    = useRef(null);
+  const fileRef            = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!ctx) return;
+    const close = e => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      setCtx(null);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [ctx]);
+
+  // Close members panel on outside click
+  useEffect(() => {
+    if (!showMembers) return;
+    const close = e => {
+      if (membersPanelRef.current && membersPanelRef.current.contains(e.target)) return;
+      setShowMembers(false);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [showMembers]);
+
+  // Close add-member panel on outside click
+  useEffect(() => {
+    if (!showAddMember) return;
+    const close = e => {
+      if (addMemberPanelRef.current && addMemberPanelRef.current.contains(e.target)) return;
+      setShowAddMember(false);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [showAddMember]);
+
+  const send = useCallback(() => {
+    const t = inp.trim();
+    if (!t && !imgPreview) return;
+    onSend(t, imgPreview || null);
+    setInp(''); setImgPreview(null);
+    if (taRef.current) {
+      taRef.current.style.height = '22px';
+      taRef.current.focus();
+    }
+  }, [inp, imgPreview, onSend]);
+
+  const onKey = e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  const pickFile = async e => {
+    const file = e.target.files[0]; if (!file) return;
+    e.target.value = ''; setUploading(true);
+    try { setImgPreview(await compressImage(file)); }
+    catch(err) { alert(err.message); }
+    finally { setUploading(false); }
+  };
+
+  const saveEdit = (msgId) => {
+    const t = editText.trim(); if (!t) return;
+    onEditMsg(channel.id, msgId, t);
+    setEditingId(null); setEditText('');
+  };
+
+  const EMOJI_LIST = ['👍','❤️','😂','😮','😢','🔥','🎉','👎','😡','💯'];
+
+  const isOnline = u => !!(presence && presence[u]);
+
+  const canModerate = me === OWNER || admins.includes(me);
+  const openCtx = (e, author) => {
+    if (author === '__system__' || author === me) return;
+    e.preventDefault();
+    setCtx({ x: e.clientX, y: e.clientY, author });
+  };
+
+  const addSuggestions = addInp.trim()
+    ? Object.keys(allUsers || {}).filter(k =>
+        (k.toLowerCase().includes(addInp.toLowerCase()) ||
+         ((allUsers[k].display||'').toLowerCase().includes(addInp.toLowerCase()))) &&
+        !channel.members.includes(k))
+    : [];
+
+  const rows = useMemo(() => insertDividers(groupMessages(messages)), [messages]);
+  const isMuted = muted.includes(me);
+
+  return (
+    <div className="chat">
+      <div className="chat-head">
+        <button className="mob-menu" onClick={onOpenSidebar}>☰</button>
+        <span className="h-sym">{channel.type === 'group' ? '👥' : '#'}</span>
+        <span className="h-nm">{channel.name}</span>
+        {channel.type === 'group' && (
+          <>
+            <span className="h-meta" style={{cursor:'pointer'}}
+                  onClick={() => { setShowMembers(p => !p); setShowAddMember(false); }}>
+              {channel.members.length} members
+            </span>
+            <button className="sb-add" style={{ marginLeft:8,flexShrink:0 }}
+                    onClick={() => { setShowAddMember(p => !p); setShowMembers(false); }} title="Add member">+</button>
+          </>
+        )}
+
+        {showMembers && channel.type === 'group' && (
+          <div className="members-panel" ref={membersPanelRef}>
+            <h4>Members — {channel.members.length}</h4>
+            {channel.members.map(u => {
+              const ud = (allUsers || {})[u] || {};
+              const disp = ud.display || u;
+              const col  = ud.color   || avColor(u);
+              return (
+                <div key={u} className="member-row">
+                  <div style={{ width:30,height:30,borderRadius:'50%',background:col,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    fontSize:13,fontWeight:800,flexShrink:0 }}>
+                    {disp[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <div style={{ fontSize:14,color:'#ccc',fontWeight:600,
+                      overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
+                      {disp}
+                      {u === OWNER && <span className="owner-badge" style={{marginLeft:5}}>Owner</span>}
+                      {u !== OWNER && admins.includes(u) && <span className="admin-badge" style={{marginLeft:5}}>Admin</span>}
+                    </div>
+                    {disp !== u && <div style={{ fontSize:11,color:'#3a3a5a' }}>@{u}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {showAddMember && (
+          <div className="add-member-panel" ref={addMemberPanelRef}>
+            <h4>Add to Group</h4>
+            <input className="add-member-inp" placeholder="Search users…"
+                   value={addInp} onChange={e => setAddInp(e.target.value)} autoFocus />
+            <div className="panel-sug">
+              {addInp.trim() && addSuggestions.length === 0 && (
+                <div style={{ padding:'10px 12px', color:'#444', fontSize:13 }}>No users found</div>
+              )}
+              {addSuggestions.slice(0, 6).map(u => {
+                const disp = (allUsers[u] && allUsers[u].display) || u;
+                return (
+                  <div key={u} className="user-sug-item"
+                       onClick={() => { onAddMember(channel.id, u); setAddInp(''); setShowAddMember(false); }}>
+                    <div style={{ width:28,height:28,borderRadius:'50%',background:avColor(u),
+                      display:'flex',alignItems:'center',justifyContent:'center',
+                      fontSize:13,fontWeight:800,flexShrink:0 }}>
+                      {disp[0].toUpperCase()}
+                    </div>
+                    <span style={{ fontSize:14,color:'#ccc' }}>{disp}</span>
+                    {disp !== u && <span style={{ color:'#3a3a5a',fontSize:12 }}>@{u}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="msgs">
+        <div className="welcome-box">
+          <span className="w-icon">{channel.type === 'group' ? '👥' : '#'}</span>
+          <h2>Welcome to #{channel.name}</h2>
+          <p>
+            {channel.type === 'group'
+              ? 'This is the start of your group chat.'
+              : `This is the beginning of the #${channel.name} channel.`}
+          </p>
+        </div>
+
+        {rows.map((item, i) => {
+          if (item.divider) return (
+            <div key={'d' + i} className="divider">
+              <hr /><span>{item.label}</span><hr />
+            </div>
+          );
+          if (item.sys) return (
+            <div key={item.msg.id} className="sys-line">{item.msg.content}</div>
+          );
+
+          const u = userData[item.author] || {};
+          const color       = u.color   || avColor(item.author);
+          const display     = u.display || item.author;
+          const isOwner     = item.author === OWNER;
+          const isAdmin     = admins.includes(item.author);
+          const isMutedUser = muted.includes(item.author);
+          const authorAura  = auraMap ? (auraMap[item.author] || 0) : 0;
+          const authorRank  = leaderboardRanks ? leaderboardRanks[item.author] : null;
+          const placeCls    = authorRank===1?'place-1':authorRank===2?'place-2':authorRank===3?'place-3':authorRank<=10?'place-top':null;
+
+          return (
+            <React.Fragment key={item.msgs[0].id}>
+              <div className="msg-grp" onContextMenu={e => openCtx(e, item.author)}>
+                <div style={{ position:'relative' }}>
+                  <div className="msg-av" style={{ background: color }}>
+                    {display[0].toUpperCase()}
+                  </div>
+                  {isOnline(item.author) && (
+                    <div style={{ position:'absolute',bottom:1,right:1,width:10,height:10,
+                      borderRadius:'50%',background:'#43b581',border:'2px solid #111119' }} />
+                  )}
+                </div>
+                <div className="msg-body">
+                  <div className="msg-hdr">
+                    <span className="msg-author" style={{ color }}>{display}</span>
+                    {isOwner && <span className="owner-badge">Owner</span>}
+                    {!isOwner && isAdmin && <span className="admin-badge">Admin</span>}
+                    {isMutedUser && canModerate && <span className="muted-badge">MUTED</span>}
+                    {placeCls && <span className={`place-badge ${placeCls}`}>{ordinal(authorRank)}</span>}
+                    <AuraDisplay score={authorAura} />
+                    <span className="msg-ts">{fmtTimestamp(item.msgs[0].ts)}{item.msgs[0].edited && ' (edited)'}</span>
+                  </div>
+                  {editingId === item.msgs[0].id
+                    ? <div style={{display:'flex',gap:6,marginTop:2}}>
+                        <textarea className="msg-inp" style={{flex:1,background:'#1a1a28',border:'1px solid #5b8dee',borderRadius:7,padding:'6px 8px',resize:'none'}}
+                          value={editText} autoFocus
+                          onChange={e=>setEditText(e.target.value)}
+                          onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();saveEdit(item.msgs[0].id);}if(e.key==='Escape'){setEditingId(null);}}} />
+                        <button className="btn-go" style={{padding:'4px 12px',fontSize:13}} onClick={()=>saveEdit(item.msgs[0].id)}>Save</button>
+                        <button className="btn-cancel" style={{padding:'4px 10px',fontSize:13}} onClick={()=>setEditingId(null)}>Cancel</button>
+                      </div>
+                    : <div>
+                        <div className="msg-text">{item.msgs[0].content}</div>
+                        {item.msgs[0].image && <img className="msg-img" src={item.msgs[0].image} alt="img" onClick={()=>setLightbox(item.msgs[0].image)} />}
+                        {item.msgs[0].reactions && (
+                          <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:5}}>
+                            {Object.entries(item.msgs[0].reactions).map(([em,users])=>{
+                              const count=Object.keys(users).length; if(!count) return null;
+                              const reacted=users[me];
+                              return <span key={em} onClick={()=>onReact(channel.id,item.msgs[0].id,em,item.author)}
+                                style={{cursor:'pointer',fontSize:13,padding:'2px 7px',borderRadius:12,
+                                  background:reacted?'rgba(91,141,238,.22)':'rgba(255,255,255,.06)',
+                                  border:`1px solid ${reacted?'rgba(91,141,238,.4)':'rgba(255,255,255,.1)'}`,
+                                  color:'#ccc',userSelect:'none'}}>
+                                {em} {count}
+                              </span>;
+                            })}
+                          </div>
+                        )}
+                        <div style={{display:'flex',gap:4,marginTop:2,opacity:0}} className="msg-actions">
+                          {EMOJI_LIST.slice(0,4).map(em=>(
+                            <span key={em} onClick={()=>onReact(channel.id,item.msgs[0].id,em,item.author)}
+                              style={{cursor:'pointer',fontSize:15,padding:'1px 4px',borderRadius:5,background:'rgba(255,255,255,.05)',transition:'background .12s'}}
+                              title={'React '+em}>{em}</span>
+                          ))}
+                          <span onClick={()=>setEmojiTarget(emojiTarget===item.msgs[0].id?null:item.msgs[0].id)}
+                            style={{cursor:'pointer',fontSize:13,padding:'2px 6px',borderRadius:5,background:'rgba(255,255,255,.05)',color:'#888'}}>+</span>
+                          {item.author === me && <>
+                            <span style={{cursor:'pointer',fontSize:13,padding:'2px 5px',color:'#888'}} onClick={()=>{setEditingId(item.msgs[0].id);setEditText(item.msgs[0].content||'');}}>✏</span>
+                            <span style={{cursor:'pointer',fontSize:13,padding:'2px 5px',color:'#ff7070'}} onClick={()=>{if(window.confirm('Delete this message?'))onDeleteMsg(channel.id,item.msgs[0].id);}}>🗑</span>
+                          </>}
+                          {(me===OWNER||admins.includes(me))&&item.author!==me&&item.author!==OWNER&&(
+                            <span style={{cursor:'pointer',fontSize:13,padding:'2px 5px',color:'#ff7070'}} onClick={()=>{if(window.confirm('Delete this message?'))onDeleteMsg(channel.id,item.msgs[0].id);}}>🗑</span>
+                          )}
+                        </div>
+                        {emojiTarget===item.msgs[0].id&&(
+                          <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4,padding:'6px 8px',background:'#1a1a28',borderRadius:9,border:'1px solid rgba(255,255,255,.08)',maxWidth:240}}>
+                            {EMOJI_LIST.map(em=><span key={em} style={{cursor:'pointer',fontSize:18,padding:'2px 4px'}} onClick={()=>{onReact(channel.id,item.msgs[0].id,em,item.author);setEmojiTarget(null);}}>{em}</span>)}
+                          </div>
+                        )}
+                      </div>
+                  }
+                </div>
+              </div>
+              {item.msgs.slice(1).map(m => (
+                <div key={m.id} className="msg-cont" onContextMenu={e => openCtx(e, item.author)}>
+                  <div className="msg-pad" />
+                  <div style={{flex:1}}>
+                    <div className="msg-text-only">{m.content}</div>
+                    {m.image && <img className="msg-img" src={m.image} alt="img" onClick={()=>setLightbox(m.image)} />}
+                    {m.reactions && (
+                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:5}}>
+                        {Object.entries(m.reactions).map(([em,users])=>{
+                          const count=Object.keys(users).length; if(!count) return null;
+                          const reacted=users[me];
+                          return <span key={em} onClick={()=>onReact(channel.id,m.id,em,item.author)}
+                            style={{cursor:'pointer',fontSize:13,padding:'2px 7px',borderRadius:12,
+                              background:reacted?'rgba(91,141,238,.22)':'rgba(255,255,255,.06)',
+                              border:`1px solid ${reacted?'rgba(91,141,238,.4)':'rgba(255,255,255,.1)'}`,
+                              color:'#ccc',userSelect:'none'}}>
+                            {em} {count}
+                          </span>;
+                        })}
+                      </div>
+                    )}
+                    <div style={{display:'flex',gap:4,marginTop:2,opacity:0}} className="msg-actions">
+                      {EMOJI_LIST.slice(0,4).map(em=>(
+                        <span key={em} onClick={()=>onReact(channel.id,m.id,em,item.author)} style={{cursor:'pointer',fontSize:15,padding:'1px 4px',borderRadius:5,background:'rgba(255,255,255,.05)'}}>{em}</span>
+                      ))}
+                      {m.author===me&&<>
+                        <span style={{cursor:'pointer',fontSize:13,padding:'2px 5px',color:'#888'}} onClick={()=>{setEditingId(m.id);setEditText(m.content||'');}}>✏</span>
+                        <span style={{cursor:'pointer',fontSize:13,padding:'2px 5px',color:'#ff7070'}} onClick={()=>{if(window.confirm('Delete?'))onDeleteMsg(channel.id,m.id);}}>🗑</span>
+                      </>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </React.Fragment>
+          );
+        })}
+
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="input-area">
+        {isMuted
+          ? <div className="muted-bar">🔇 You have been muted</div>
+          : <>
+              <input type="file" accept="image/*" ref={fileRef} style={{display:'none'}} onChange={pickFile} />
+              {imgPreview && (
+                <div style={{paddingBottom:6}}>
+                  <div className="img-preview-wrap">
+                    <img className="img-preview-thumb" src={imgPreview} alt="preview" />
+                    <button className="img-preview-rm" onClick={()=>setImgPreview(null)}>×</button>
+                  </div>
+                </div>
+              )}
+              {uploading && <div className="upload-prog">⏳ Compressing image…</div>}
+              <div className="input-wrap">
+                <button className="img-btn" onClick={()=>fileRef.current.click()} title="Attach image">🖼</button>
+                <textarea
+                  ref={taRef}
+                  className="msg-inp"
+                  placeholder={`Message #${channel.name}  (Shift+Enter for new line)`}
+                  value={inp}
+                  rows={1}
+                  style={{ height: '22px' }}
+                  onChange={e => {
+                    setInp(e.target.value);
+                    e.target.style.height = '22px';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                  }}
+                  onKeyDown={onKey}
+                />
+                <button className="send-btn" onClick={send} disabled={!inp.trim() && !imgPreview}>↑</button>
+              </div>
+            </>
+        }
+      </div>
+
+      {ctx && (
+        <div className="ctx-menu" ref={menuRef} style={{ left: ctx.x, top: ctx.y }}>
+          <div style={{ padding:'4px 14px 8px', fontSize:12, color:'#555',
+                        borderBottom:'1px solid rgba(255,255,255,.06)', marginBottom:4 }}>
+            @{ctx.author}
+          </div>
+          <div className="ctx-item" style={{color:'#fdcb6e'}}
+               onClick={() => { onChallenge(ctx.author); setCtx(null); }}>
+            🪙 Challenge to Coin Flip
+          </div>
+          {canModerate && ctx.author !== OWNER && !(me !== OWNER && admins.includes(ctx.author)) && <>
+            {onSendQuiz && (
+              <div className="ctx-item" style={{color:'#a855f7'}}
+                   onClick={() => { onSendQuiz(ctx.author); setCtx(null); }}>
+                📝 Send Quiz
+              </div>
+            )}
+            <div className="ctx-item warn" onClick={() => { onMute(ctx.author); setCtx(null); }}>
+              {muted.includes(ctx.author) ? '🔊 Unmute' : '🔇 Mute'}
+            </div>
+            {me === OWNER && (
+              <div className="ctx-item" style={{ color:'#5b8dee' }}
+                   onClick={() => { onPromote(ctx.author); setCtx(null); }}>
+                {admins.includes(ctx.author) ? '⬇ Remove Admin' : '⬆ Make Admin'}
+              </div>
+            )}
+            <div className="ctx-item danger" onClick={() => { onBan(ctx.author); setCtx(null); }}>
+              🔨 Ban
+            </div>
+          </>}
+        </div>
+      )}
+
+      {lightbox && (
+        <div className="lightbox-bg" onClick={()=>setLightbox(null)}>
+          <button className="lightbox-close" onClick={()=>setLightbox(null)}>×</button>
+          <img className="lightbox-img" src={lightbox} alt="full size" onClick={e=>e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN APP
+═══════════════════════════════════════════════════════════════ */
+function MainApp({ me, onLogout }) {
+  const [chs,          setChs]          = useState([]);
+  const [showSidebar,  setShowSidebar]  = useState(false);
+  const [activeCh,     setActiveCh]     = useState('general');
+  const [msgs,         setMsgs]         = useState({});
+  const [users,        setUsers]        = useState({});
+  const [showModal,    setShowModal]    = useState(false);
+  const [showProfile,  setShowProfile]  = useState(false);
+  const [muted,        setMuted]        = useState([]);
+  const [admins,       setAdmins]       = useState([]);
+  const [presence,     setPresence]     = useState({});
+  const [unread,       setUnread]       = useState({});
+  const [auraMap,          setAuraMap]          = useState({});
+  const [activeQuiz,       setActiveQuiz]       = useState(null);
+  const [showLB,           setShowLB]           = useState(false);
+  const [showCoinFlip,     setShowCoinFlip]     = useState(false);
+  const [challengeTarget,  setChallengeTarget]  = useState(null);
+  const [incomingChallenge,setIncomingChallenge]= useState(null);
+  const [incomingChallengeId,setIncomingChallengeId]= useState(null);
+  const [quizTarget,       setQuizTarget]       = useState(null);
+  const lastSeenRef = useRef({});
+
+  // Initialize default channels, then listen
+  useEffect(() => {
+    let chRef;
+    async function init() {
+      const snap = await FB.ref('channels').once('value');
+      if (!snap.exists()) {
+        const t = Date.now();
+        await FB.ref('channels').set({
+          general:       { id:'general',       name:'general',       type:'public', members:{}, created_by:'system', created:t },
+          announcements: { id:'announcements', name:'announcements', type:'public', members:{}, created_by:'system', created:t },
+          random:        { id:'random',        name:'random',        type:'public', members:{}, created_by:'system', created:t },
+          gaming:        { id:'gaming',        name:'gaming',        type:'public', members:{}, created_by:'system', created:t },
+        });
+        await FB.ref('messages/general').push({
+          author: '__system__',
+          content: 'Welcome to ArrowsMail! Anyone can sign up and chat in real-time from any device.',
+          ts: t, sys: true,
+        });
+      }
+      chRef = FB.ref('channels');
+      chRef.on('value', snap => {
+        const data = snap.val() || {};
+        const list = Object.values(data)
+          .map(c => ({ ...c, members: Object.keys(c.members || {}) }))
+          .sort((a, b) => a.created - b.created);
+        setChs(list);
+      });
+    }
+    init();
+    return () => { if (chRef) chRef.off('value'); };
+  }, []);
+
+  // Listen to messages for active channel
+  useEffect(() => {
+    const ref = FB.ref('messages/' + activeCh);
+    ref.on('value', snap => {
+      const data = snap.val() || {};
+      const list = Object.entries(data)
+        .map(([k, v]) => ({ id: k, ...v }))
+        .sort((a, b) => a.ts - b.ts);
+      setMsgs(p => ({ ...p, [activeCh]: list }));
+    });
+    return () => ref.off('value');
+  }, [activeCh]);
+
+  // Listen to users
+  useEffect(() => {
+    const ref = FB.ref('users');
+    ref.on('value', snap => setUsers(snap.val() || {}));
+    return () => ref.off('value');
+  }, []);
+
+  // Listen to muted
+  useEffect(() => {
+    const ref = FB.ref('muted');
+    ref.on('value', snap => {
+      const data = snap.val() || {};
+      setMuted(Object.keys(data).filter(k => data[k]));
+    });
+    return () => ref.off('value');
+  }, []);
+
+  // Listen to admins
+  useEffect(() => {
+    const ref = FB.ref('admins');
+    ref.on('value', snap => {
+      const data = snap.val() || {};
+      setAdmins(Object.keys(data).filter(k => data[k]));
+    });
+    return () => ref.off('value');
+  }, []);
+
+  // Presence: mark self online, remove on disconnect
+  useEffect(() => {
+    const ref = FB.ref('presence/' + me);
+    ref.set(Date.now());
+    ref.onDisconnect().remove();
+    const presRef = FB.ref('presence');
+    presRef.on('value', snap => setPresence(snap.val() || {}));
+    return () => { presRef.off('value'); ref.onDisconnect().cancel(); };
+  }, [me]);
+
+  // Listen to aura scores
+  useEffect(() => {
+    const ref = FB.ref('aura');
+    ref.on('value', snap => setAuraMap(snap.val() || {}));
+    return () => ref.off('value');
+  }, []);
+
+  // Listen for incoming coin flip challenges
+  useEffect(() => {
+    const ref = FB.ref('challenges/' + me);
+    ref.on('child_added', snap => {
+      const c = snap.val();
+      if (c && c.status === 'pending') {
+        setIncomingChallenge(c);
+        setIncomingChallengeId(snap.key);
+      }
+    });
+    return () => ref.off('child_added');
+  }, [me]);
+
+  // Listen for quiz sent by admin
+  useEffect(() => {
+    const ref = FB.ref('quiz_inbox/' + me);
+    ref.on('value', snap => {
+      const q = snap.val();
+      if (q && !activeQuiz) { setActiveQuiz({ ...q, fromAdmin: true }); ref.remove(); }
+    });
+    return () => ref.off('value');
+  }, [me, activeQuiz]);
+
+  // Random quiz timer — fires every 3–7 minutes
+  useEffect(() => {
+    if (activeQuiz) return;
+    const delay = (180 + Math.random() * 240) * 1000;
+    const timer = setTimeout(() => {
+      const q = QUIZ_QUESTIONS[Math.floor(Math.random() * QUIZ_QUESTIONS.length)];
+      setActiveQuiz(q);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [activeQuiz]);
+
+  // Unread badge: track last-seen per channel
+  useEffect(() => {
+    lastSeenRef.current[activeCh] = Date.now();
+    setUnread(p => ({ ...p, [activeCh]: 0 }));
+  }, [activeCh]);
+
+  useEffect(() => {
+    const allMsgs = msgs[activeCh] || [];
+    if (!allMsgs.length) return;
+    const lastTs = lastSeenRef.current[activeCh] || 0;
+    const newCount = allMsgs.filter(m => m.ts > lastTs && m.author !== me && !m.sys).length;
+    // only update unread for other channels
+    Object.keys(msgs).forEach(chId => {
+      if (chId === activeCh) return;
+      const ls = lastSeenRef.current[chId] || 0;
+      const count = (msgs[chId] || []).filter(m => m.ts > ls && m.author !== me && !m.sys).length;
+      setUnread(p => ({ ...p, [chId]: count }));
+    });
+  }, [msgs, activeCh, me]);
+
+  const sendMsg = useCallback((content, image) => {
+    const payload = { author: me, content: content || '', ts: Date.now() };
+    if (image) payload.image = image;
+    FB.ref('messages/' + activeCh).push(payload);
+  }, [me, activeCh]);
+
+  const addAura = useCallback((username, delta) => {
+    FB.ref('aura/' + username).transaction(cur => Math.max(0, (cur || 0) + delta));
+  }, []);
+
+  const sendChallenge = useCallback((toUser, amount) => {
+    const id = genId();
+    FB.ref('challenges/' + toUser + '/' + id).set({ from: me, amount, status: 'pending', ts: Date.now() });
+  }, [me]);
+
+  const acceptChallenge = useCallback(() => {
+    if (!incomingChallenge || !incomingChallengeId) return;
+    const { from, amount } = incomingChallenge;
+    FB.ref('challenges/' + me + '/' + incomingChallengeId).remove();
+    const won = Math.random() < 0.5;
+    if (won) { addAura(me, amount); addAura(from, -amount); }
+    else      { addAura(from, amount); addAura(me, -amount); }
+    const winner = won ? me : from;
+    const loser  = won ? from : me;
+    FB.ref('messages/' + activeCh).push({
+      author:'__system__', ts:Date.now(), sys:true,
+      content:`🪙 Coin flip! ${winner} beat ${loser} and won ${amount} Aura!`
+    });
+    setIncomingChallenge(null); setIncomingChallengeId(null);
+  }, [incomingChallenge, incomingChallengeId, me, activeCh, addAura]);
+
+  const declineChallenge = useCallback(() => {
+    if (!incomingChallengeId) return;
+    FB.ref('challenges/' + me + '/' + incomingChallengeId).remove();
+    setIncomingChallenge(null); setIncomingChallengeId(null);
+  }, [me, incomingChallengeId]);
+
+  const sendAdminQuiz = useCallback((toUser, question) => {
+    FB.ref('quiz_inbox/' + toUser).set({ ...question, from: me, ts: Date.now() });
+  }, [me]);
+
+  const handleQuizFinish = useCallback(reward => {
+    if (reward > 0) addAura(me, reward);
+    setActiveQuiz(null);
+  }, [me, addAura]);
+
+  const handleCoinFlipResult = useCallback(delta => {
+    addAura(me, delta);
+  }, [me, addAura]);
+
+  const editMsg = useCallback((chId, msgId, content) => {
+    FB.ref('messages/' + chId + '/' + msgId).update({ content, edited: true });
+  }, []);
+
+  const deleteMsg = useCallback((chId, msgId) => {
+    FB.ref('messages/' + chId + '/' + msgId).remove();
+  }, []);
+
+  const reactMsg = useCallback((chId, msgId, emoji, msgAuthor) => {
+    const ref = FB.ref(`reactions/${chId}/${msgId}/${emoji}/${me}`);
+    ref.once('value').then(snap => {
+      if (snap.exists()) {
+        ref.remove();
+        if (emoji === '👍' && msgAuthor && msgAuthor !== me) addAura(msgAuthor, -1);
+      } else {
+        ref.set(true);
+        if (emoji === '👍' && msgAuthor && msgAuthor !== me) addAura(msgAuthor, 1);
+      }
+    });
+  }, [me, addAura]);
+
+  const createChannel = useCallback((name, type, members) => {
+    const id = 'ch_' + genId();
+    const membersArr = type === 'group' ? [me, ...members] : [];
+    const membersObj = {};
+    membersArr.forEach(u => membersObj[u] = true);
+    const now = Date.now();
+    const ch = { id, name, type, members: membersObj, created_by: me, created: now };
+    FB.ref('channels/' + id).set(ch);
+    FB.ref('messages/' + id).push({
+      author: '__system__', content: `${me} created this channel`, ts: now, sys: true,
+    });
+    setChs(prev => [...prev, { ...ch, members: membersArr }]);
+    setActiveCh(id);
+    setShowModal(false);
+  }, [me]);
+
+  const startDM = useCallback(otherUser => {
+    const pair = [me, otherUser].sort();
+    const dmId = 'dm_' + pair.join('_');
+    const existingCh = chs.find(c => c.id === dmId);
+    if (existingCh) { setActiveCh(dmId); setShowSidebar(false); return; }
+    const membersObj = { [me]: true, [otherUser]: true };
+    const now = Date.now();
+    const ch = { id: dmId, name: dmId, type: 'dm', members: membersObj, created_by: me, created: now };
+    FB.ref('channels/' + dmId).set(ch);
+    setActiveCh(dmId);
+    setShowSidebar(false);
+  }, [me, chs]);
+
+  const saveProfile = useCallback(async ({ display, color }) => {
+    await FB.ref('users/' + me).update({ display, color });
+  }, [me]);
+
+  const addMemberToGroup = useCallback((channelId, username) => {
+    FB.ref('channels/' + channelId + '/members/' + username).set(true);
+    FB.ref('messages/' + channelId).push({
+      author: '__system__', content: `${me} added ${username}`, ts: Date.now(), sys: true,
+    });
+  }, [me]);
+
+  const muteUser = useCallback(username => {
+    if (muted.includes(username)) {
+      FB.ref('muted/' + username).remove();
+    } else {
+      FB.ref('muted/' + username).set(true);
+    }
+  }, [muted]);
+
+  const banUser = useCallback(username => {
+    if (!window.confirm(`Ban "${username}"? They will be logged out immediately.`)) return;
+    FB.ref('banned/' + username).set(true);
+    FB.ref('muted/' + username).remove();
+    FB.ref('messages/' + activeCh).push({
+      author: '__system__', content: `${username} was banned by the owner.`, ts: Date.now(), sys: true,
+    });
+  }, [activeCh]);
+
+  const promoteAdmin = useCallback(username => {
+    if (admins.includes(username)) {
+      FB.ref('admins/' + username).remove();
+    } else {
+      FB.ref('admins/' + username).set(true);
+    }
+  }, [admins]);
+
+  // Merge reactions into messages
+  const [reactions, setReactions] = useState({});
+  useEffect(() => {
+    const ref = FB.ref('reactions/' + activeCh);
+    ref.on('value', snap => setReactions(p => ({ ...p, [activeCh]: snap.val() || {} })));
+    return () => ref.off('value');
+  }, [activeCh]);
+
+  const messagesWithReactions = useMemo(() => {
+    const chMsgs = msgs[activeCh] || [];
+    const chReactions = reactions[activeCh] || {};
+    return chMsgs.map(m => ({ ...m, reactions: chReactions[m.id] || null }));
+  }, [msgs, reactions, activeCh]);
+
+  const visible = useMemo(() =>
+    chs.filter(c =>
+      c.type === 'public' ||
+      ((c.type === 'group' || c.type === 'dm') && c.members.includes(me))
+    ),
+    [chs, me]
+  );
+
+  const leaderboardRanks = useMemo(() => {
+    const sorted = Object.entries(auraMap).sort((a,b)=>b[1]-a[1]);
+    const ranks = {};
+    sorted.forEach(([u], i) => { if (i < 10) ranks[u] = i + 1; });
+    return ranks;
+  }, [auraMap]);
+
+  const channel = visible.find(c => c.id === activeCh) || null;
+
+  return (
+    <div className="layout">
+      {showSidebar && <div className="sidebar-overlay" onClick={() => setShowSidebar(false)} />}
+      <Sidebar
+        channels={visible}
+        activeId={activeCh}
+        onSelect={id => { setActiveCh(id); setShowSidebar(false); }}
+        onNew={() => setShowModal(true)}
+        me={me}
+        userData={users}
+        onLogout={onLogout}
+        isOpen={showSidebar}
+        presence={presence}
+        onOpenProfile={() => setShowProfile(true)}
+        onStartDM={startDM}
+        unread={unread}
+        auraMap={auraMap}
+        onOpenLeaderboard={() => setShowLB(true)}
+        onOpenCoinFlip={() => setShowCoinFlip(true)}
+      />
+
+      {channel
+        ? <ChatArea channel={channel} messages={messagesWithReactions} onSend={sendMsg}
+                    me={me} userData={users} muted={muted} admins={admins}
+                    onMute={muteUser} onBan={banUser} onPromote={promoteAdmin}
+                    onAddMember={addMemberToGroup} allUsers={users}
+                    onOpenSidebar={() => setShowSidebar(true)}
+                    onEditMsg={editMsg} onDeleteMsg={deleteMsg} onReact={reactMsg}
+                    presence={presence} auraMap={auraMap}
+                    onChallenge={u => setChallengeTarget(u)}
+                    onSendQuiz={(me === OWNER || admins.includes(me)) ? u => setQuizTarget(u) : null}
+                    leaderboardRanks={leaderboardRanks} />
+        : <div className="no-ch">
+            <button className="mob-menu" style={{position:'absolute',top:9,left:12}}
+                    onClick={() => setShowSidebar(true)}>☰</button>
+            <span>✨</span><p>Select a channel to start chatting</p>
+          </div>
+      }
+
+      {showModal && (
+        <CreateModal
+          onClose={() => setShowModal(false)}
+          onCreate={createChannel}
+          allUsers={users}
+          me={me}
+        />
+      )}
+
+      {showProfile && (
+        <ProfileModal
+          me={me}
+          userData={users}
+          onClose={() => setShowProfile(false)}
+          onSave={saveProfile}
+        />
+      )}
+
+      {activeQuiz && (
+        <QuizModal question={activeQuiz} onFinish={handleQuizFinish} />
+      )}
+
+      {showLB && (
+        <Leaderboard auraMap={auraMap} userData={users} me={me} onClose={() => setShowLB(false)} />
+      )}
+
+      {showCoinFlip && (
+        <CoinFlipModal
+          myAura={auraMap[me] || 0}
+          onClose={() => setShowCoinFlip(false)}
+          onResult={handleCoinFlipResult}
+        />
+      )}
+
+      {challengeTarget && (
+        <ChallengeSendModal
+          target={challengeTarget}
+          targetData={users[challengeTarget]}
+          myAura={auraMap[me] || 0}
+          onClose={() => setChallengeTarget(null)}
+          onSend={sendChallenge}
+        />
+      )}
+
+      {incomingChallenge && (
+        <ChallengeNotification
+          challenge={incomingChallenge}
+          userData={users}
+          myAura={auraMap[me] || 0}
+          onAccept={acceptChallenge}
+          onDecline={declineChallenge}
+        />
+      )}
+
+      {quizTarget && (
+        <AdminQuizSendModal
+          target={quizTarget}
+          targetData={users[quizTarget]}
+          onClose={() => setQuizTarget(null)}
+          onSend={sendAdminQuiz}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ROOT
+═══════════════════════════════════════════════════════════════ */
+function App() {
+  const [me,      setMe]      = useState(null);
+  const [loading, setLoading] = useState(!SETUP_NEEDED);
+
+  useEffect(() => {
+    if (SETUP_NEEDED) return;
+    const s = localStorage.getItem('am_sess');
+    if (!s) { setLoading(false); return; }
+    FB.ref('users/' + s).once('value')
+      .then(snap => { if (snap.exists()) setMe(s); else localStorage.removeItem('am_sess'); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!me) return;
+    const ref = FB.ref('banned/' + me);
+    ref.on('value', snap => {
+      if (snap.val()) { localStorage.removeItem('am_sess'); setMe(null); }
+    });
+    return () => ref.off('value');
+  }, [me]);
+
+  const login  = useCallback(u => setMe(u), []);
+  const logout = useCallback(() => { localStorage.removeItem('am_sess'); setMe(null); }, []);
+
+  if (SETUP_NEEDED) return <SetupScreen />;
+  if (loading) return (
+    <div className="auth-bg">
+      <div style={{ color:'#3a3a5a', fontSize:15, letterSpacing:.5 }}>Connecting…</div>
+    </div>
+  );
+  if (!me) return <AuthScreen onLogin={login} />;
+  return <MainApp me={me} onLogout={logout} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
