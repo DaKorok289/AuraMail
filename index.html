@@ -532,7 +532,7 @@ const SHOP_ITEMS = [
   { id:'diamond',      name:'Diamond Badge',  icon:'💎', price:100, desc:'Shows 💎 badge next to your name',          type:'cosmetic'   },
   { id:'fire',         name:'Fire Badge',     icon:'🔥', price:75,  desc:'Shows 🔥 badge next to your name',          type:'cosmetic'   },
   { id:'crown',        name:'Crown Badge',    icon:'👑', price:200, desc:'Shows 👑 — the rarest badge',               type:'cosmetic'   },
-  { id:'mystery_box',  name:'Mystery Box',    icon:'🎲', price:25,  desc:'Instantly win 1–80 random Aura',            type:'consumable' },
+  { id:'mystery_box',  name:'Mystery Box',    icon:'🎲', price:25,  desc:'Instantly win 1–30 random Aura',            type:'consumable' },
   { id:'quiz_boost',   name:'Quiz Boost ×3',  icon:'⚡', price:60,  desc:'Next 3 quizzes give +15 bonus Aura',        type:'consumable' },
   { id:'aura_bomb',    name:'Aura Bomb',      icon:'💣', price:150, desc:'Give 50 Aura to a random online user',      type:'consumable' },
 ];
@@ -2075,7 +2075,7 @@ function MainApp({ me, onLogout }) {
     if (item.type === 'cosmetic') {
       FB.ref('items/' + me + '/' + item.id).set(true);
     } else if (item.id === 'mystery_box') {
-      const prize = Math.floor(Math.random() * 80) + 1;
+      const prize = Math.floor(Math.random() * 30) + 1;
       addAura(me, prize);
       FB.ref('messages/' + activeCh).push({
         author: '__system__', ts: Date.now(), sys: true,
