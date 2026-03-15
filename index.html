@@ -1781,7 +1781,7 @@ function MainApp({ me, onLogout }) {
   // Random quiz timer — fires every 3–7 minutes
   useEffect(() => {
     if (activeQuiz) return;
-    const delay = (180 + Math.random() * 240) * 1000;
+    const delay = (120 + Math.random() * 120) * 1000;
     const timer = setTimeout(() => {
       const q = QUIZ_QUESTIONS[Math.floor(Math.random() * QUIZ_QUESTIONS.length)];
       setActiveQuiz(q);
