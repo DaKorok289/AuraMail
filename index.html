@@ -1608,13 +1608,13 @@ function ChatArea({ channel, messages, onSend, me, userData, muted, admins, onMu
                onClick={() => { onChallenge(ctx.author); setCtx(null); }}>
             🪙 Challenge to Coin Flip
           </div>
+          {onSendQuiz && canModerate && (
+            <div className="ctx-item" style={{color:'#a855f7'}}
+                 onClick={() => { onSendQuiz(ctx.author); setCtx(null); }}>
+              📝 Send Quiz
+            </div>
+          )}
           {canModerate && ctx.author !== OWNER && !(me !== OWNER && admins.includes(ctx.author)) && <>
-            {onSendQuiz && (
-              <div className="ctx-item" style={{color:'#a855f7'}}
-                   onClick={() => { onSendQuiz(ctx.author); setCtx(null); }}>
-                📝 Send Quiz
-              </div>
-            )}
             <div className="ctx-item warn" onClick={() => { onMute(ctx.author); setCtx(null); }}>
               {muted.includes(ctx.author) ? '🔊 Unmute' : '🔇 Mute'}
             </div>
