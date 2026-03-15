@@ -1816,7 +1816,7 @@ function MainApp({ me, onLogout }) {
   }, [me, activeCh]);
 
   const addAura = useCallback((username, delta) => {
-    FB.ref('aura/' + username).transaction(cur => Math.max(0, (cur || 0) + delta));
+    FB.ref('aura/' + username).transaction(cur => Math.max(1, (cur || 0) + delta));
   }, []);
 
   const sendChallenge = useCallback((toUser, amount) => {
