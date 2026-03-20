@@ -353,6 +353,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .lottery-result .res-icon{font-size:64px;display:block;margin-bottom:12px;
   animation:popIn .4s cubic-bezier(.175,.885,.32,1.275);}
 @keyframes popIn{from{transform:scale(0)}to{transform:scale(1)}}
+@keyframes immuneFlash{0%,100%{opacity:1}50%{opacity:0.25}}
 @keyframes bulletPulse{0%,100%{transform:scale(1);box-shadow:0 0 6px 2px #ff4444,0 0 12px 4px rgba(255,68,68,.4)}50%{transform:scale(1.3);box-shadow:0 0 10px 4px #ff6666,0 0 20px 8px rgba(255,68,68,.6)}}
 @keyframes bulletTrail{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(0.2)}}
 
@@ -678,7 +679,8 @@ const MG_MAP_SHOOTER = (() => {
    [11,3],[11,4],[12,4],[11,10],[11,11],[12,11],[8,8],[8,9]].forEach(([y,x])=>{if(y<H&&x<W)m[y][x]=2;});
   return m;
 })();
-const SHOOTER_SPAWNS=[{x:2,y:2},{x:17,y:2},{x:2,y:13},{x:17,y:13},{x:9,y:7},{x:5,y:7},{x:14,y:7},{x:9,y:2}];
+const SHOOTER_SPAWNS=[{x:2,y:2},{x:17,y:2},{x:2,y:13},{x:17,y:13},{x:9,y:2},{x:9,y:13},{x:2,y:7},{x:17,y:7}];
+const SHOOTER_SPEED = 7; // tiles per second
 
 function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS,shooter:MG_MAP_SHOOTER}[t]||MG_MAP_TAG;}
 
@@ -2162,7 +2164,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
 
   // 4 Corners: auto-pick corner 10s after each round starts (admin executes)
   useEffect(() => {
-    if (!inMG || !mgState || mgState.type !== 'corners' || mgState.status !== 'active' || !isAdmin) return;
+    if (!inMG || !mgState || mgState.type !== 'corners' || mgState.status !== 'active' || mgState.startedBy !== me) return;
     if (mgState.cornersPickAt) {
       const delay = mgState.cornersPickAt - Date.now();
       if (delay <= 0) { pickCorner(); return; }
@@ -2172,18 +2174,19 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       // Start the 10s countdown automatically
       FB.ref('minigame/state/cornersPickAt').set(Date.now() + 10000);
     }
-  }, [inMG, mgState ? mgState.cornersPickAt : null, mgState ? mgState.status : null, isAdmin]);
+  }, [inMG, mgState ? mgState.cornersPickAt : null, mgState ? mgState.status : null, mgState ? mgState.startedBy : null, me]);
 
   // Tag / Hide & Seek: seeker proximity tagging
   useEffect(() => {
     if (!inMG || !mgState || mgState.status !== 'active' || mgState.it !== me) return;
     if (mgState.type !== 'hide') return;
-    if (Date.now() - lastTagRef.current < 2000) return;
+    // Use Firebase itSince as authoritative cooldown — prevents race condition on seeker swap
+    if (mgState.itSince && Date.now() - mgState.itSince < 3000) return;
     Object.entries(mgPlayers).forEach(([uname, pd]) => {
       if (uname === me || pd.eliminated) return;
       if (Math.abs(pd.x - mgPos.x) + Math.abs(pd.y - mgPos.y) <= 1) {
         lastTagRef.current = Date.now();
-        FB.ref('minigame/state/it').set(uname);
+        FB.ref('minigame/state').update({ it: uname, itSince: Date.now() });
         FB.ref('minigame/players/' + me + '/score').transaction(cur => (cur||0) + 1);
         // New seeker is sent to spawn; tagger stays where they are
         FB.ref('minigame/players/' + uname).update({ x: HNS_SEEKER_SPAWN.x, y: HNS_SEEKER_SPAWN.y, ts: Date.now() });
@@ -2192,12 +2195,6 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     });
   }, [mgPos, inMG, mgState, mgPlayers]);
 
-  // Reset tag cooldown when you freshly become "it"
-  useEffect(() => {
-    if (inMG && mgState && mgState.type === 'hide' && mgState.it === me) {
-      lastTagRef.current = Date.now();
-    }
-  }, [inMG, mgState ? mgState.it : null]);
 
   // Hide & Seek: teleport to seeker spawn when you become the seeker
   useEffect(() => {
@@ -2280,16 +2277,15 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => cancelAnimationFrame(rafRef.current);
   }, [move]);
 
-  // Shooter: fire bullet on Space key or shoot button
+  // Shooter: fire bullet — stores start pos + direction + timestamp only
   const shoot = useCallback(() => {
     if (!inMGRef.current || mgStateRef.current?.type !== 'shooter' || mgStateRef.current?.status !== 'active') return;
-    if (Date.now() - lastShootRef.current < 500) return; // 0.5s cooldown
+    if (Date.now() - lastShootRef.current < 600) return;
     lastShootRef.current = Date.now();
     const {dx,dy} = lastDirRef.current;
     const p = mgPosRef.current;
     const id = me + '_' + Date.now();
-    FB.ref('minigame/bullets/' + id).set({ x:p.x, y:p.y, dx, dy, owner:me, ts:Date.now() });
-    setTimeout(() => FB.ref('minigame/bullets/'+id).remove(), 2000);
+    FB.ref('minigame/bullets/'+id).set({ sx:p.x, sy:p.y, dx, dy, owner:me, ts:Date.now() });
   }, [me]);
 
   // Listen for Space to shoot
@@ -2299,57 +2295,70 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => window.removeEventListener('keydown', onDown);
   }, [shoot]);
 
-  // Shooter: move bullets & detect hits (admin)
+  // Admin: hit detection + bullet expiry via interval (not Firebase listener to avoid loops)
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !isAdmin) return;
-    const ref = FB.ref('minigame/bullets');
-    ref.on('value', snap => {
-      const all = snap.val() || {};
-      Object.entries(all).forEach(([id, b]) => {
-        const map = getMGMap('shooter');
-        const nx = b.x + b.dx, ny = b.y + b.dy;
-        if (!map[ny] || map[ny][nx] === 1 || map[ny][nx] === 2 || Date.now() - b.ts > 2000) {
-          FB.ref('minigame/bullets/'+id).remove();
-          return;
-        }
-        FB.ref('minigame/bullets/'+id).update({ x:nx, y:ny });
-        // Hit detection
+    const map = getMGMap('shooter');
+    const interval = setInterval(() => {
+      FB.ref('minigame/bullets').once('value').then(bSnap => {
+        const bullets = bSnap.val() || {};
         FB.ref('minigame/players').once('value').then(pSnap => {
           const allP = pSnap.val() || {};
-          Object.entries(allP).forEach(([uname, pd]) => {
-            if (uname === b.owner || pd.eliminated) return;
-            if (pd.x === nx && pd.y === ny) {
-              FB.ref('minigame/bullets/'+id).remove();
-              FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
-              const newLives = (pd.lives||1) - 1;
-              if (newLives <= 0) {
-                FB.ref('minigame/players/'+uname).update({eliminated:true, lives:0});
-                const alive = Object.entries(allP).filter(([u,p])=>!p.eliminated&&u!==uname);
-                if (alive.length <= 1) {
-                  const winner = alive[0]?.[0] || b.owner;
-                  FB.ref('minigame/state').update({status:'ended',winner,type:'shooter'});
-                }
-              } else {
-                // Respawn at random spawn with reduced lives
-                const sp = SHOOTER_SPAWNS[Math.floor(Math.random()*SHOOTER_SPAWNS.length)];
-                FB.ref('minigame/players/'+uname).update({lives:newLives, x:sp.x, y:sp.y});
-              }
+          Object.entries(bullets).forEach(([id, b]) => {
+            const elapsed = (Date.now() - b.ts) / 1000;
+            const dist = SHOOTER_SPEED * elapsed;
+            // Walk the path to find wall hit or max distance
+            let hitWall = false, bTileX = b.sx, bTileY = b.sy;
+            for (let d = 1; d <= Math.floor(dist) + 1; d++) {
+              const tx = b.sx + b.dx * d, ty = b.sy + b.dy * d;
+              if (!map[ty] || map[ty][tx] === 1 || map[ty][tx] === 2) { hitWall = true; break; }
+              bTileX = tx; bTileY = ty;
             }
+            if (hitWall || elapsed > 3) { FB.ref('minigame/bullets/'+id).remove(); return; }
+            // Check player hits
+            Object.entries(allP).forEach(([uname, pd]) => {
+              if (uname === b.owner || pd.eliminated) return;
+              if (Math.round(pd.x) === bTileX && Math.round(pd.y) === bTileY) {
+                // Immunity check
+                if (pd.spawnTime && Date.now() - pd.spawnTime < 3000) return;
+                FB.ref('minigame/bullets/'+id).remove();
+                FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
+                const newLives = (pd.lives||1) - 1;
+                if (newLives <= 0) {
+                  FB.ref('minigame/players/'+uname).update({eliminated:true, lives:0});
+                  const alive = Object.entries(allP).filter(([u,p])=>!p.eliminated&&u!==uname);
+                  if (alive.length<=1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||b.owner,type:'shooter'});
+                } else {
+                  const sp = SHOOTER_SPAWNS[Math.floor(Math.random()*SHOOTER_SPAWNS.length)];
+                  FB.ref('minigame/players/'+uname).update({lives:newLives, x:sp.x, y:sp.y, spawnTime:Date.now()});
+                }
+              }
+            });
           });
         });
       });
-    });
-    return () => ref.off('value');
+    }, 100);
+    return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
 
-  // Sync bullets display
+  // Sync raw bullet data from Firebase
   const [bullets2, setBullets2] = useState([]);
   useEffect(() => {
-    if (!inMG || !mgState || mgState.type !== 'shooter') return;
+    if (!inMG || !mgState || mgState.type !== 'shooter') { setBullets2([]); return; }
     const ref = FB.ref('minigame/bullets');
     ref.on('value', snap => setBullets2(Object.entries(snap.val()||{}).map(([id,b])=>({id,...b}))));
-    return () => ref.off('value');
+    return () => { ref.off('value'); setBullets2([]); };
   }, [inMG, mgState?.type]);
+
+  // RAF tick to animate bullets smoothly (local computation only)
+  const [, setBulletTick] = useState(0);
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'shooter' || !bullets2.length) return;
+    let raf;
+    const tick = () => { setBulletTick(t => t+1); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [inMG, mgState?.type, bullets2.length]);
 
   // Quest checking
   useEffect(() => {
@@ -2387,7 +2396,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       mgPosRef.current = initPos;
       setMgPos(initPos);
       const lives = type.id === 'shooter' ? 3 : undefined;
-      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(lives!==undefined?{lives}:{})});
+      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(lives!==undefined?{lives,spawnTime:Date.now()}:{})});
       FB.ref('minigame/players/'+me).onDisconnect().remove();
     });
     inMGRef.current = true;
@@ -2409,7 +2418,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     mgPosRef.current = initPos;
     setMgPos(initPos);
     const isShooter = mgInvite.type === 'shooter';
-    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(isShooter?{lives:3}:{})});
+    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(isShooter?{lives:3,spawnTime:Date.now()}:{})});
     FB.ref('minigame/players/'+me).onDisconnect().remove();
     FB.ref('minigame/invites/'+me).remove();
     inMGRef.current = true;
@@ -2421,32 +2430,40 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const updates = {'minigame/state/status':'active'};
     if (mgState?.type === 'hide' && pList.length > 0)
       updates['minigame/state/it'] = pList[Math.floor(Math.random()*pList.length)];
+      updates['minigame/state/itSince'] = Date.now();
     FB.ref().update(updates);
   }, [mgPlayers, mgState]);
 
   const pickCorner = useCallback(() => {
     const corners = ['A','B','C','D'];
     const picked = corners[Math.floor(Math.random()*corners.length)];
-    const zoneId = MG_CORNER_ID[picked];
-    const map = getMGMap('corners');
-    FB.ref('minigame/state').update({ corner: picked, cornersPickAt: null });
-    // Read live positions from Firebase to avoid stale state
-    FB.ref('minigame/players').once('value').then(snap => {
-      const all = snap.val() || {};
-      Object.entries(all).forEach(([uname, pd]) => {
-        if (pd.eliminated) return;
-        const tile = map[pd.y]?.[pd.x];
-        const inAnyCorner = [5,6,7,8].includes(tile);
-        // Eliminated if NOT in any corner OR in the picked (bad) corner
-        if (!inAnyCorner || tile === zoneId) FB.ref('minigame/players/'+uname).update({eliminated:true});
-      });
-      setTimeout(() => {
-        FB.ref('minigame/players').once('value').then(snap2 => {
-          const all2 = snap2.val()||{};
-          const alive = Object.entries(all2).filter(([_,p])=>!p.eliminated);
-          if (alive.length <= 1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||null,type:'corners'});
+    // Transaction: atomically claim cornersPickAt so only ONE admin client runs elimination
+    FB.ref('minigame/state/cornersPickAt').transaction(current => {
+      if (current === null || current === undefined) return; // already claimed, abort
+      return null; // claim it
+    }).then(result => {
+      if (!result.committed) return; // another client beat us
+      // Now write the chosen corner and run elimination
+      FB.ref('minigame/state/corner').set(picked);
+      const map = getMGMap('corners');
+      const zoneId = MG_CORNER_ID[picked];
+      FB.ref('minigame/players').once('value').then(snap => {
+        const all = snap.val() || {};
+        Object.entries(all).forEach(([uname, pd]) => {
+          if (pd.eliminated) return;
+          const tile = map[pd.y]?.[pd.x];
+          const inAnyCorner = [5,6,7,8].includes(tile);
+          // Eliminated if NOT in any corner OR standing in the chosen (bad) corner
+          if (!inAnyCorner || tile === zoneId) FB.ref('minigame/players/'+uname).update({eliminated:true});
         });
-      }, 800);
+        setTimeout(() => {
+          FB.ref('minigame/players').once('value').then(snap2 => {
+            const all2 = snap2.val()||{};
+            const alive = Object.entries(all2).filter(([_,p])=>!p.eliminated);
+            if (alive.length <= 1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||null,type:'corners'});
+          });
+        }, 800);
+      });
     });
   }, []);
 
@@ -2633,8 +2650,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       const nameShadow = hasGoldName ? `0 0 8px #fdcb6e99,0 1px 4px rgba(0,0,0,.5)` : uname===me?`0 0 8px ${pColor}99,0 1px 4px rgba(0,0,0,.5)`:'0 1px 4px rgba(0,0,0,.5)';
       const isOwnerP = uname === OWNER;
       const isAdminP = (admins||[]).includes(uname);
+      const isImmune = isMinigame && mgState?.type==='shooter' && pd.spawnTime && Date.now()-pd.spawnTime < 3000;
       return (
-        <div key={uname} style={{position:'absolute',left:pd.x*TILE,top:pd.y*TILE,width:TILE,height:TILE,display:'flex',alignItems:'center',justifyContent:'center',transition:'left .18s,top .18s',zIndex:uname===me?3:2,pointerEvents:'none'}}>
+        <div key={uname} style={{position:'absolute',left:pd.x*TILE,top:pd.y*TILE,width:TILE,height:TILE,display:'flex',alignItems:'center',justifyContent:'center',transition:'left .18s,top .18s',zIndex:uname===me?3:2,pointerEvents:'none',animation:isImmune?'immuneFlash 0.4s ease-in-out infinite':undefined}}>
           <div style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
             <div style={{fontSize:9,fontWeight:800,color:nameColor,
               background:uname===me?pColor+'cc':'rgba(0,0,0,.75)',
@@ -2838,24 +2856,31 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none'}}>
                 <div style={{position:'absolute',top:`calc(50% - ${mgPos.y*TILE+TILE/2}px)`,left:`calc(50% - ${mgPos.x*TILE+TILE/2}px)`}}>
                   {fogTiles||shooterTiles||mgTiles}
-                  {mgState.type==='shooter'&&bullets2.map(b=>{
-                    const cx=b.x*TILE+TILE/2, cy=b.y*TILE+TILE/2;
-                    const tx=cx-(b.dx||0)*TILE*0.6, ty=cy-(b.dy||0)*TILE*0.6;
-                    return (
-                      <React.Fragment key={b.id}>
-                        {/* Trail */}
-                        <div style={{position:'absolute',left:tx-3,top:ty-3,width:6,height:6,borderRadius:'50%',
-                          background:'rgba(255,120,60,.5)',pointerEvents:'none',
-                          animation:'bulletTrail 0.15s linear forwards'}}/>
-                        {/* Bullet */}
-                        <div style={{position:'absolute',left:cx-5,top:cy-5,width:10,height:10,borderRadius:'50%',
-                          background:'radial-gradient(circle at 35% 35%,#ffaa44,#ff2222)',
-                          animation:'bulletPulse 0.3s ease-in-out infinite',
-                          transition:'left 0.12s linear,top 0.12s linear',
-                          pointerEvents:'none'}}/>
-                      </React.Fragment>
-                    );
-                  })}
+                  {mgState.type==='shooter'&&(()=>{
+                    const smap = getMGMap('shooter');
+                    return bullets2.map(b=>{
+                      const elapsed = (Date.now() - b.ts) / 1000;
+                      let dist = SHOOTER_SPEED * elapsed;
+                      // Clamp to wall
+                      for (let d = 1; d <= Math.ceil(dist); d++) {
+                        const tx = b.sx + b.dx*d, ty = b.sy + b.dy*d;
+                        if (!smap[ty] || smap[ty][tx]===1 || smap[ty][tx]===2) { dist = d-1; break; }
+                      }
+                      const bx = b.sx + b.dx*dist, by = b.sy + b.dy*dist;
+                      const px = bx*TILE+TILE/2, py = by*TILE+TILE/2;
+                      const tx2 = px - (b.dx||0)*TILE*0.7, ty2 = py - (b.dy||0)*TILE*0.7;
+                      return (
+                        <React.Fragment key={b.id}>
+                          <div style={{position:'absolute',left:tx2-3,top:ty2-3,width:6,height:6,borderRadius:'50%',
+                            background:'rgba(255,140,60,.45)',pointerEvents:'none',filter:'blur(1px)'}}/>
+                          <div style={{position:'absolute',left:px-6,top:py-6,width:12,height:12,borderRadius:'50%',
+                            background:'radial-gradient(circle at 35% 35%,#fff 10%,#ffcc44 40%,#ff2200)',
+                            boxShadow:'0 0 8px 3px rgba(255,80,0,.7),0 0 16px 6px rgba(255,40,0,.35)',
+                            pointerEvents:'none'}}/>
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
                   {renderPlayers(mgPlayers, mgPos, true, hnsVisible)}
                 </div>
               </div>
