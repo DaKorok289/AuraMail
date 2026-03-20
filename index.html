@@ -1990,9 +1990,10 @@ function ChatArea({ channel, messages, onSend, me, userData, muted, admins, onMu
    RPG WORLD
 ═══════════════════════════════════════════════════════════════ */
 function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItems }) {
-  const TILE = 40;
   const isAdmin = (admins||[]).includes(me) || me === OWNER;
   const isMobile = window.innerWidth < 600;
+  const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const TILE = isMobile ? 28 : 40;
   const PANEL_W = isMobile ? 140 : 210;
   const MG_PANEL_W = isMobile ? 120 : 180;
 
@@ -2155,6 +2156,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   useEffect(() => {
     if (!inMG || !mgState || mgState.status !== 'active' || mgState.it !== me) return;
     if (mgState.type !== 'hide') return;
+    if (Date.now() - lastTagRef.current < 2000) return;
     Object.entries(mgPlayers).forEach(([uname, pd]) => {
       if (uname === me || pd.eliminated) return;
       if (Math.abs(pd.x - mgPos.x) + Math.abs(pd.y - mgPos.y) <= 1) {
@@ -2170,6 +2172,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
 
   // Reset tag cooldown when you freshly become "it"
   useEffect(() => {
+    if (inMG && mgState && mgState.type === 'hide' && mgState.it === me) {
+      lastTagRef.current = Date.now();
+    }
   }, [inMG, mgState ? mgState.it : null]);
 
   // Hide & Seek: teleport to seeker spawn when you become the seeker
@@ -2479,7 +2484,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         })}
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
-        {isMobile && Joystick()}
+        {isTouch && Joystick()}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
           <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
