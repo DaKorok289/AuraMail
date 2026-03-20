@@ -2478,7 +2478,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         })}
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
-        {Joystick()}
+        {isMobile && Joystick()}
         <input style={{flex:1,background:'#1a1a28',border:'1px solid rgba(255,255,255,.08)',borderRadius:8,padding:'7px 12px',color:'#eee',fontSize:13,outline:'none',fontFamily:'inherit'}}
           placeholder="Chat in world…" value={chatInp}
           onChange={e=>setChatInp(e.target.value)}
