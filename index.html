@@ -680,7 +680,7 @@ const MG_MAP_SHOOTER = (() => {
   return m;
 })();
 const SHOOTER_SPAWNS=[{x:2,y:2},{x:17,y:2},{x:2,y:13},{x:17,y:13},{x:9,y:2},{x:9,y:13},{x:2,y:7},{x:17,y:7}];
-const SHOOTER_SPEED = 7; // tiles per second
+const SHOOTER_SPEED = 18; // tiles per second
 
 function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS,shooter:MG_MAP_SHOOTER}[t]||MG_MAP_TAG;}
 
@@ -2320,18 +2320,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               if (uname === b.owner || pd.eliminated) return;
               if (Math.round(pd.x) === bTileX && Math.round(pd.y) === bTileY) {
                 // Immunity check
-                if (pd.spawnTime && Date.now() - pd.spawnTime < 3000) return;
                 FB.ref('minigame/bullets/'+id).remove();
                 FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
-                const newLives = (pd.lives||1) - 1;
-                if (newLives <= 0) {
-                  FB.ref('minigame/players/'+uname).update({eliminated:true, lives:0});
-                  const alive = Object.entries(allP).filter(([u,p])=>!p.eliminated&&u!==uname);
-                  if (alive.length<=1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||b.owner,type:'shooter'});
-                } else {
-                  const sp = SHOOTER_SPAWNS[Math.floor(Math.random()*SHOOTER_SPAWNS.length)];
-                  FB.ref('minigame/players/'+uname).update({lives:newLives, x:sp.x, y:sp.y, spawnTime:Date.now()});
-                }
+                FB.ref('minigame/players/'+uname).update({eliminated:true});
+                const alive = Object.entries(allP).filter(([u,p])=>!p.eliminated&&u!==uname);
+                if (alive.length<=1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||b.owner,type:'shooter'});
               }
             });
           });
@@ -2395,8 +2388,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       const initPos = {x:sx,y:sy};
       mgPosRef.current = initPos;
       setMgPos(initPos);
-      const lives = type.id === 'shooter' ? 3 : undefined;
-      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(lives!==undefined?{lives,spawnTime:Date.now()}:{})});
+      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
       FB.ref('minigame/players/'+me).onDisconnect().remove();
     });
     inMGRef.current = true;
@@ -2417,8 +2409,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const initPos = {x:sx,y:sy};
     mgPosRef.current = initPos;
     setMgPos(initPos);
-    const isShooter = mgInvite.type === 'shooter';
-    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(isShooter?{lives:3,spawnTime:Date.now()}:{})});
+    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
     FB.ref('minigame/players/'+me).onDisconnect().remove();
     FB.ref('minigame/invites/'+me).remove();
     inMGRef.current = true;
@@ -2650,16 +2641,14 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       const nameShadow = hasGoldName ? `0 0 8px #fdcb6e99,0 1px 4px rgba(0,0,0,.5)` : uname===me?`0 0 8px ${pColor}99,0 1px 4px rgba(0,0,0,.5)`:'0 1px 4px rgba(0,0,0,.5)';
       const isOwnerP = uname === OWNER;
       const isAdminP = (admins||[]).includes(uname);
-      const isImmune = isMinigame && mgState?.type==='shooter' && pd.spawnTime && Date.now()-pd.spawnTime < 3000;
       return (
-        <div key={uname} style={{position:'absolute',left:pd.x*TILE,top:pd.y*TILE,width:TILE,height:TILE,display:'flex',alignItems:'center',justifyContent:'center',transition:'left .18s,top .18s',zIndex:uname===me?3:2,pointerEvents:'none',animation:isImmune?'immuneFlash 0.4s ease-in-out infinite':undefined}}>
+        <div key={uname} style={{position:'absolute',left:pd.x*TILE,top:pd.y*TILE,width:TILE,height:TILE,display:'flex',alignItems:'center',justifyContent:'center',transition:'left .18s,top .18s',zIndex:uname===me?3:2,pointerEvents:'none'}}>
           <div style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
             <div style={{fontSize:9,fontWeight:800,color:nameColor,
               background:uname===me?pColor+'cc':'rgba(0,0,0,.75)',
               padding:'1px 5px',borderRadius:4,whiteSpace:'nowrap',
               boxShadow:nameShadow,display:'flex',alignItems:'center',gap:3}}>
               <span>{pd.name||uname}{isItPlayer?(mgState?.type==='hide'?' 👁':' 🏷'):''}</span>
-              {mgState?.type==='shooter'&&pd.lives>0&&<span style={{fontSize:7,letterSpacing:1}}>{'❤️'.repeat(pd.lives)}</span>}
               {isOwnerP && <span style={{fontSize:7,fontWeight:800,padding:'0 3px',borderRadius:3,background:'rgba(255,60,60,.25)',color:'#ff4444',border:'1px solid rgba(255,60,60,.4)',letterSpacing:.4,textTransform:'uppercase'}}>Owner</span>}
               {!isOwnerP && isAdminP && <span style={{fontSize:7,fontWeight:800,padding:'0 3px',borderRadius:3,background:'rgba(91,141,238,.25)',color:'#5b8dee',border:'1px solid rgba(91,141,238,.4)',letterSpacing:.4,textTransform:'uppercase'}}>Admin</span>}
             </div>
@@ -2899,7 +2888,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                   <AvatarSprite emoji={p.avatar||'👤'} color={p.color||avColor(u)} size={28} isMe={u===me} isIt={mgState.type==='hide'&&mgState.it===u} eliminated={p.eliminated}/>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,color:u===me?'#fff':'#bbb',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||u}</div>
-                    {mgState.type==='shooter'&&<div style={{fontSize:9,color:'#fdcb6e'}}>{p.score||0} kills {'❤️'.repeat(Math.max(0,p.lives||0))}</div>}
+                    {mgState.type==='shooter'&&<div style={{fontSize:9,color:'#fdcb6e'}}>{p.score||0} kills</div>}
                     {p.eliminated&&<div style={{fontSize:9,color:'#e74c3c'}}>eliminated</div>}
                   </div>
                 </div>
