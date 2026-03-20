@@ -2459,17 +2459,6 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     );
   };
 
-  const DPad = () => (
-    <div style={{display:'grid',gridTemplateColumns:'repeat(3,52px)',gridTemplateRows:'repeat(3,52px)',gap:3,flexShrink:0}}>
-      {[[null,'↑',null],['←','·','→'],[null,'↓',null]].map((row,ri)=>row.map((btn,ci)=>(
-        <button key={`${ri}${ci}`}
-          onPointerDown={e=>{e.preventDefault();if(btn==='↑')move(0,-1);if(btn==='↓')move(0,1);if(btn==='←')move(-1,0);if(btn==='→')move(1,0);}}
-          style={{background:btn&&btn!=='·'?'rgba(91,141,238,.25)':'transparent',border:btn&&btn!=='·'?'2px solid rgba(91,141,238,.45)':'none',borderRadius:10,color:'#5b8dee',cursor:btn&&btn!=='·'?'pointer':'default',fontSize:22,display:'flex',alignItems:'center',justifyContent:'center',padding:0,touchAction:'manipulation',WebkitTapHighlightColor:'transparent',userSelect:'none'}}>
-          {btn!=='·'?btn:''}
-        </button>
-      )))}
-    </div>
-  );
 
   const ChatBar = () => (
     <div style={{background:'#111',borderTop:'1px solid rgba(255,255,255,.06)',flexShrink:0}}>
@@ -2489,7 +2478,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         })}
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
-        {isMobile ? Joystick() : DPad()}
+        {Joystick()}
         <input style={{flex:1,background:'#1a1a28',border:'1px solid rgba(255,255,255,.08)',borderRadius:8,padding:'7px 12px',color:'#eee',fontSize:13,outline:'none',fontFamily:'inherit'}}
           placeholder="Chat in world…" value={chatInp}
           onChange={e=>setChatInp(e.target.value)}
