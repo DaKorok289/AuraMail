@@ -538,6 +538,128 @@ const SHOP_ITEMS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
+   RPG CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const RPG_AVATARS = [
+  { id:'cat',    emoji:'🐱', name:'Cat'    },
+  { id:'dog',    emoji:'🐶', name:'Dog'    },
+  { id:'fox',    emoji:'🦊', name:'Fox'    },
+  { id:'bear',   emoji:'🐻', name:'Bear'   },
+  { id:'wolf',   emoji:'🐺', name:'Wolf'   },
+  { id:'frog',   emoji:'🐸', name:'Frog'   },
+  { id:'panda',  emoji:'🐼', name:'Panda'  },
+  { id:'lion',   emoji:'🦁', name:'Lion'   },
+  { id:'tiger',  emoji:'🐯', name:'Tiger'  },
+  { id:'koala',  emoji:'🐨', name:'Koala'  },
+  { id:'rabbit', emoji:'🐰', name:'Rabbit' },
+  { id:'dragon', emoji:'🐲', name:'Dragon' },
+];
+
+const RPG_MAP = [
+  [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+  [2,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+  [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+];
+const MAP_W = 24, MAP_H = 15;
+
+const RPG_QUESTS = [
+  { id:'walk20',  name:'Take a Walk',   icon:'👟', desc:'Move 20 steps',            reward:15, type:'steps',    target:20 },
+  { id:'chat5',   name:'Socialite',     icon:'💬', desc:'Send 5 messages in world', reward:20, type:'chat',     target:5  },
+  { id:'walk60',  name:'Explorer',      icon:'🗺', desc:'Move 60 steps',            reward:35, type:'steps',    target:60 },
+  { id:'chat15',  name:'Chatterbox',    icon:'🗣', desc:'Send 15 world messages',   reward:50, type:'chat',     target:15 },
+  { id:'visitNW', name:'Go Northwest',  icon:'🧭', desc:'Reach the northwest area', reward:20, type:'location', tx:3,  ty:3  },
+  { id:'visitSE', name:'Go Southeast',  icon:'🧭', desc:'Reach the southeast area', reward:20, type:'location', tx:20, ty:12 },
+  { id:'near3',   name:'Party Time',    icon:'🎉', desc:'Be near 3 players at once', reward:30, type:'near',    target:3  },
+];
+
+const TILE_BG  = { 0:'#2a5e1e', 1:'#1565c0', 2:'#1b5e20', 3:'#4e342e' };
+const TILE_ICN = { 2:'🌲', 3:'🏠', 1:'🌊' };
+
+/* ── Mini-game system ── */
+const MINIGAME_TYPES = [
+  { id:'rlgl',    name:'Red Light Green Light', icon:'🚦', desc:'Freeze on red — move on green. First to finish wins!',         minPlayers:2, aura:30 },
+  { id:'corners', name:'4 Corners',             icon:'🟦', desc:'Pick a corner. A random corner is eliminated each round!',     minPlayers:3, aura:25 },
+  { id:'tag',     name:'Tag',                   icon:'🏷', desc:'The tagger chases everyone. Most tags when time runs out wins!', minPlayers:2, aura:20 },
+  { id:'race',    name:'Sprint Race',           icon:'🏁', desc:'Race to the finish line — fastest player wins!',               minPlayers:2, aura:25 },
+];
+
+const MG_MAP_RLGL = (() => {
+  const W = 30, H = 22;
+  const m = [];
+  m.push(Array(W).fill(1));                        // row 0: wall
+  m.push([1,...Array(W-2).fill(3),1]);             // row 1: finish line
+  for (let i=2;i<=H-3;i++) m.push([1,...Array(W-2).fill(0),1]); // open field
+  m.push([1,...Array(W-2).fill(4),1]);             // row H-2: start line
+  m.push(Array(W).fill(1));                        // row H-1: wall
+  return m;
+})();
+const RLGL_START_Y = 19; // H-2 = start row index
+
+const MG_MAP_CORNERS = (() => {
+  const W=22,H=14;
+  const m = Array.from({length:H},()=>Array(W).fill(0));
+  for (let x=0;x<W;x++){m[0][x]=1;m[H-1][x]=1;}
+  for (let y=0;y<H;y++){m[y][0]=1;m[y][W-1]=1;}
+  for (let y=1;y<=4;y++) for(let x=1;x<=5;x++)  m[y][x]=5; // A top-left
+  for (let y=1;y<=4;y++) for(let x=16;x<=20;x++) m[y][x]=6; // B top-right
+  for (let y=9;y<=12;y++) for(let x=1;x<=5;x++) m[y][x]=7; // C bot-left
+  for (let y=9;y<=12;y++) for(let x=16;x<=20;x++) m[y][x]=8; // D bot-right
+  return m;
+})();
+
+const MG_MAP_TAG = (() => {
+  const W=22,H=12;
+  const m = Array.from({length:H},()=>Array(W).fill(0));
+  for (let x=0;x<W;x++){m[0][x]=1;m[H-1][x]=1;}
+  for (let y=0;y<H;y++){m[y][0]=1;m[y][W-1]=1;}
+  [[2,4],[2,14],[4,8],[4,18],[6,3],[6,11],[6,17],[8,6],[8,14],[3,2],[9,2],[3,18],[9,18]].forEach(([y,x])=>{if(y<H&&x<W)m[y][x]=2;});
+  return m;
+})();
+
+const MG_MAP_RACE = (() => {
+  const W=30, H=22;
+  const m=[];
+  m.push(Array(W).fill(1));
+  m.push([1,...Array(W-2).fill(3),1]);
+  for (let i=2;i<=H-3;i++) m.push([1,...Array(W-2).fill(0),1]);
+  m.push([1,...Array(W-2).fill(4),1]);
+  m.push(Array(W).fill(1));
+  return m;
+})();
+
+function getMGMap(t){return{rlgl:MG_MAP_RLGL,corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,race:MG_MAP_RACE}[t]||MG_MAP_TAG;}
+
+const MG_TILE_BG={0:'#1c2b1c',1:'#0d0d0d',2:'#142010',3:'#003300',4:'#1f1a00',5:'#2a0505',6:'#05052a',7:'#052508',8:'#1a0525'};
+const MG_TILE_ICN={2:'🌲',3:'🏁',4:'🟡'};
+const MG_CORNER_COLOR={5:'#e74c3c',6:'#3498db',7:'#2ecc71',8:'#9b59b6'};
+const MG_CORNER_LABEL={5:'A',6:'B',7:'C',8:'D'};
+const MG_CORNER_ID={A:5,B:6,C:7,D:8};
+/* ── Avatar sprite component ── */
+function AvatarSprite({emoji,color,size,glow,isIt,eliminated,isMe}){
+  const sz=size||38;
+  const c=color||'#5b8dee';
+  return (
+    <div style={{width:sz,height:sz,borderRadius:'50%',background:eliminated?'#1a1a1a':`radial-gradient(circle at 38% 32%,${c}55,${c}18)`,border:`2.5px solid ${eliminated?'#333':c}`,boxShadow:eliminated?'none':glow?`0 0 18px ${c}cc,0 0 6px ${c},inset 0 1px 0 rgba(255,255,255,.25)`:`0 3px 10px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.12)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:sz*.57,position:'relative',overflow:'hidden',flexShrink:0,opacity:eliminated?0.35:1,transition:'all .3s',transform:isMe?'scale(1.08)':undefined}}>
+      <div style={{position:'absolute',top:2,left:sz*.15,width:sz*.38,height:sz*.22,background:'rgba(255,255,255,.2)',borderRadius:'50%',transform:'rotate(-30deg)',pointerEvents:'none'}}/>
+      <span style={{position:'relative',zIndex:1,filter:eliminated?'grayscale(1)':undefined}}>{emoji}</span>
+      {isIt&&<div style={{position:'absolute',bottom:-2,right:-2,background:'#e74c3c',borderRadius:'50%',width:sz*.42,height:sz*.42,display:'flex',alignItems:'center',justifyContent:'center',fontSize:sz*.22,border:'1.5px solid #fff',zIndex:2}}>🏷</div>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    FIREBASE CONFIG
 ═══════════════════════════════════════════════════════════════ */
 const FIREBASE_CONFIG = {
@@ -1308,7 +1430,7 @@ function ProfileModal({ me, userData, onClose, onSave }) {
 /* ═══════════════════════════════════════════════════════════════
    SIDEBAR
 ═══════════════════════════════════════════════════════════════ */
-function Sidebar({ channels, activeId, onSelect, onNew, me, userData, onLogout, isOpen, presence, onOpenProfile, onStartDM, unread, auraMap, onOpenLeaderboard, onOpenCoinFlip, onSendQuiz, admins, lotteryPool, myTickets, onOpenLottery, onOpenShop }) {
+function Sidebar({ channels, activeId, onSelect, onNew, me, userData, onLogout, isOpen, presence, onOpenProfile, onStartDM, unread, auraMap, onOpenLeaderboard, onOpenCoinFlip, onSendQuiz, admins, lotteryPool, myTickets, onOpenLottery, onOpenShop, onOpenRPG }) {
   const pub = channels.filter(c => c.type === 'public');
   const grp = channels.filter(c => c.type === 'group');
   const dms  = channels.filter(c => c.type === 'dm');
@@ -1420,6 +1542,7 @@ function Sidebar({ channels, activeId, onSelect, onNew, me, userData, onLogout, 
         <button className="sb-action-btn" onClick={onOpenShop}>🛒 Aura Shop</button>
         <button className="sb-action-btn" onClick={onOpenLeaderboard}>✨ Leaderboard</button>
         <button className="sb-action-btn" onClick={onOpenCoinFlip}>🪙 Coin Flip</button>
+        <button className="sb-action-btn" onClick={onOpenRPG}>🗺 RPG World</button>
       </div>
     </div>
   );
@@ -1838,6 +1961,750 @@ function ChatArea({ channel, messages, onSend, me, userData, muted, admins, onMu
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   RPG WORLD
+═══════════════════════════════════════════════════════════════ */
+function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins }) {
+  const TILE = 40;
+  const isAdmin = (admins||[]).includes(me) || me === OWNER;
+
+  // RPG state
+  const [avatar,    setAvatar]    = useState(null);
+  const [pos,       setPos]       = useState({ x:5, y:7 });
+  const [players,   setPlayers]   = useState({});
+  const [chatMsgs,  setChatMsgs]  = useState([]);
+  const [chatInp,   setChatInp]   = useState('');
+  const [steps,     setSteps]     = useState(0);
+  const [chatCount, setChatCount] = useState(0);
+  const [doneQ,     setDoneQ]     = useState({});
+  const [showQ,     setShowQ]     = useState(false);
+
+  // Mini-game state
+  const [mgState,    setMgState]    = useState(null);
+  const [mgPlayers,  setMgPlayers]  = useState({});
+  const [inMG,       setInMG]       = useState(false);
+  const [mgPos,      setMgPos]      = useState({ x:12, y:12 });
+  const [mgInvite,   setMgInvite]   = useState(null);
+  const [showMGPick, setShowMGPick] = useState(false);
+  const [mgTimer,    setMgTimer]    = useState(60);
+  const [mgResult,   setMgResult]   = useState(null);
+  const mgTimerRef  = useRef(null);
+  const keysRef     = useRef(new Set());
+  const rafRef      = useRef(null);
+  const lastMoveRef = useRef(0);
+  const posRef      = useRef({ x:5, y:7 });
+  const mgPosRef    = useRef({ x:12, y:12 });
+  const inMGRef     = useRef(false);
+  const mgStateRef  = useRef(null);
+
+  const chatBoxRef = useRef(null);
+  const u    = userData[me]||{};
+  const disp = u.display||me;
+  const col  = u.color||avColor(me);
+
+  // Register / cleanup player in RPG
+  useEffect(() => {
+    if (!avatar) return;
+    const ref = FB.ref('rpg/players/' + me);
+    ref.set({ x: pos.x, y: pos.y, avatar: avatar.emoji, name: disp, color: col, ts: Date.now() });
+    ref.onDisconnect().remove();
+    return () => { ref.remove(); ref.onDisconnect().cancel(); };
+  }, [avatar]);
+
+  // Sync RPG position
+  useEffect(() => {
+    if (!avatar || inMG) return;
+    FB.ref('rpg/players/' + me).update({ x: pos.x, y: pos.y, ts: Date.now() });
+  }, [pos, avatar, inMG]);
+
+  // Sync MG position
+  useEffect(() => {
+    if (!inMG || !avatar) return;
+    FB.ref('minigame/players/' + me).update({ x: mgPos.x, y: mgPos.y, ts: Date.now() });
+  }, [mgPos, inMG, avatar]);
+
+  // Listen to all RPG players
+  useEffect(() => {
+    const ref = FB.ref('rpg/players');
+    ref.on('value', snap => setPlayers(snap.val() || {}));
+    return () => ref.off('value');
+  }, []);
+
+  // Listen to RPG chat
+  useEffect(() => {
+    const ref = FB.ref('rpg/chat');
+    ref.limitToLast(60).on('value', snap => {
+      const data = snap.val() || {};
+      setChatMsgs(Object.entries(data).map(([k,v])=>({id:k,...v})).sort((a,b)=>a.ts-b.ts));
+    });
+    return () => ref.off('value');
+  }, []);
+
+  useEffect(() => {
+    if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
+  }, [chatMsgs]);
+
+  // Listen to mini-game state
+  useEffect(() => {
+    const ref = FB.ref('minigame/state');
+    ref.on('value', snap => {
+      const s = snap.val();
+      setMgState(s);
+      if (s && s.status === 'ended' && !mgResult) setMgResult(s);
+    });
+    return () => ref.off('value');
+  }, []);
+
+  // Reward winner
+  useEffect(() => {
+    if (!mgResult || mgResult.winner !== me || mgResult.rewarded) return;
+    const type = MINIGAME_TYPES.find(t => t.id === mgResult.type);
+    if (type) onEarnAura(type.aura, type.name + ' Victory');
+    FB.ref('minigame/state/rewarded').set(true);
+  }, [mgResult]);
+
+  // Listen for invite
+  useEffect(() => {
+    if (!avatar) return;
+    const ref = FB.ref('minigame/invites/' + me);
+    ref.on('value', snap => setMgInvite(snap.val() || null));
+    return () => ref.off('value');
+  }, [avatar, me]);
+
+  // Listen to mini-game players
+  useEffect(() => {
+    if (!inMG) return;
+    const ref = FB.ref('minigame/players');
+    ref.on('value', snap => setMgPlayers(snap.val() || {}));
+    return () => ref.off('value');
+  }, [inMG]);
+
+  // Game timer countdown
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.status !== 'active') return;
+    setMgTimer(60);
+    if (mgTimerRef.current) clearInterval(mgTimerRef.current);
+    mgTimerRef.current = setInterval(() => {
+      setMgTimer(t => {
+        if (t <= 1) {
+          clearInterval(mgTimerRef.current);
+          if (isAdmin) endMinigame();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(mgTimerRef.current);
+  }, [inMG, mgState?.status]);
+
+  // RLGL: auto-toggle light (admin only)
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'rlgl' || mgState.status !== 'active' || !isAdmin) return;
+    // Green stays 2-4s, red stays 1-2.5s — red is more frequent
+    const isGreen = mgState.light === 'green';
+    const delay = isGreen ? (2 + Math.random() * 2) * 1000 : (1 + Math.random() * 1.5) * 1000;
+    const timer = setTimeout(() => {
+      FB.ref('minigame/state/light').set(isGreen ? 'red' : 'green');
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.light, mgState?.status, isAdmin]);
+
+  // Tag: check proximity (only "it" player)
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'tag' || mgState.status !== 'active' || mgState.it !== me) return;
+    Object.entries(mgPlayers).forEach(([uname, pd]) => {
+      if (uname === me || pd.eliminated) return;
+      if (Math.abs(pd.x - mgPos.x) + Math.abs(pd.y - mgPos.y) <= 1) {
+        FB.ref('minigame/state/it').set(uname);
+        FB.ref('minigame/players/' + me + '/score').transaction(cur => (cur||0) + 1);
+        FB.ref('rpg/chat').push({ author:'__system__', content:`🏷 ${me} tagged ${uname}!`, ts:Date.now() });
+      }
+    });
+  }, [mgPos, inMG, mgState, mgPlayers]);
+
+  // Sync refs — move() reads these instead of closure state so it never re-creates
+  useEffect(() => { inMGRef.current = inMG; }, [inMG]);
+  useEffect(() => { mgStateRef.current = mgState; }, [mgState]);
+
+  // Movement handler — reads refs, never stale, never recreated on state changes
+  const move = useCallback((dx, dy) => {
+    if (inMGRef.current && mgStateRef.current) {
+      const curMGState = mgStateRef.current;
+      const map = getMGMap(curMGState.type);
+      const p = mgPosRef.current;
+      const nx = p.x + dx, ny = p.y + dy;
+      if (ny < 0 || ny >= map.length || nx < 0 || nx >= (map[0]||[]).length) return;
+      const tile = map[ny] ? map[ny][nx] : 1;
+      if (tile === 1 || tile === 2) return;
+      let newPos;
+      if (curMGState.type === 'rlgl' && curMGState.light === 'red' && curMGState.status === 'active') {
+        const startX = Math.floor((map[0].length - 2) / 2) + 1;
+        newPos = { x: startX, y: RLGL_START_Y };
+        FB.ref('minigame/players/' + me).update({ x: startX, y: RLGL_START_Y, ts: Date.now() });
+      } else {
+        newPos = { x: nx, y: ny };
+        if ((curMGState.type === 'race' || curMGState.type === 'rlgl') && ny === 1 && curMGState.status === 'active') {
+          FB.ref('minigame/state').update({ status:'ended', winner:me, type:curMGState.type });
+        }
+      }
+      mgPosRef.current = newPos;
+      setMgPos(newPos);
+    } else {
+      const p = posRef.current;
+      const nx = p.x + dx, ny = p.y + dy;
+      if (nx < 1 || nx >= MAP_W-1 || ny < 1 || ny >= MAP_H-1) return;
+      if (RPG_MAP[ny][nx] === 2 || RPG_MAP[ny][nx] === 1) return;
+      const newPos = { x: nx, y: ny };
+      posRef.current = newPos;
+      setPos(newPos);
+      setSteps(s => s + 1);
+    }
+  }, [me]);
+
+  // Track held keys
+  useEffect(() => {
+    const MOVE_KEYS = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d']);
+    const onDown = e => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (MOVE_KEYS.has(e.key)) { e.preventDefault(); keysRef.current.add(e.key); }
+    };
+    const onUp = e => keysRef.current.delete(e.key);
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup',   onUp);
+    return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
+  }, []);
+
+  // RAF movement loop — moves at fixed interval, no key-repeat lag
+  useEffect(() => {
+    const INTERVAL = 100; // ms between steps
+    const tick = now => {
+      rafRef.current = requestAnimationFrame(tick);
+      if (now - lastMoveRef.current < INTERVAL) return;
+      const k = keysRef.current;
+      let dx = 0, dy = 0;
+      if (k.has('ArrowUp')    || k.has('w')) dy = -1;
+      else if (k.has('ArrowDown')  || k.has('s')) dy =  1;
+      if (k.has('ArrowLeft')  || k.has('a')) dx = -1;
+      else if (k.has('ArrowRight') || k.has('d')) dx =  1;
+      if (dx !== 0 || dy !== 0) { move(dx, dy); lastMoveRef.current = now; }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [move]);
+
+  // Quest checking
+  useEffect(() => {
+    RPG_QUESTS.forEach(q => {
+      if (doneQ[q.id]) return;
+      let done = false;
+      if (q.type==='steps'    && steps>=q.target) done=true;
+      if (q.type==='chat'     && chatCount>=q.target) done=true;
+      if (q.type==='location' && Math.abs(pos.x-q.tx)+Math.abs(pos.y-q.ty)<=3) done=true;
+      if (q.type==='near') {
+        const nearby = Object.values(players).filter(p=>p!==players[me]&&Math.abs(p.x-pos.x)+Math.abs(p.y-pos.y)<=3);
+        if (nearby.length >= q.target) done = true;
+      }
+      if (done) { setDoneQ(p=>({...p,[q.id]:true})); onEarnAura(q.reward, q.name); }
+    });
+  }, [steps, chatCount, pos, players, doneQ]);
+
+  // Mini-game helpers
+  const startMinigame = useCallback((type) => {
+    const invites = {};
+    Object.keys(players).forEach(uname => {
+      if (uname !== me)
+        invites[`minigame/invites/${uname}`] = { type:type.id, name:type.name, icon:type.icon, from:me, ts:Date.now() };
+    });
+    invites['minigame/state'] = { type:type.id, status:'lobby', startedBy:me, ts:Date.now(), light:'green', it:null, corner:null };
+    invites['minigame/players'] = null; // clear old players
+    FB.ref().update(invites).then(() => {
+      const map = getMGMap(type.id);
+      const sx = Math.floor((map[0].length-2)/2)+1, sy = map.length-2;
+      const initPos = {x:sx,y:sy};
+      mgPosRef.current = initPos;
+      setMgPos(initPos);
+      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
+      FB.ref('minigame/players/'+me).onDisconnect().remove();
+    });
+    inMGRef.current = true;
+    setInMG(true); setShowMGPick(false); setMgInvite(null); setMgResult(null);
+  }, [players, me, avatar, disp, col]);
+
+  const joinMinigame = useCallback(() => {
+    if (!mgInvite || !mgState) return;
+    const map = getMGMap(mgInvite.type);
+    const sx = Math.min(Math.max(1, Math.floor((map[0].length-2)/2) + Math.floor(Math.random()*5)-2), map[0].length-2);
+    const sy = map.length-2;
+    const initPos = {x:sx,y:sy};
+    mgPosRef.current = initPos;
+    setMgPos(initPos);
+    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
+    FB.ref('minigame/players/'+me).onDisconnect().remove();
+    FB.ref('minigame/invites/'+me).remove();
+    inMGRef.current = true;
+    setInMG(true); setMgInvite(null); setMgResult(null);
+  }, [mgInvite, mgState, me, avatar, disp, col]);
+
+  const startGame = useCallback(() => {
+    const pList = Object.keys(mgPlayers);
+    const updates = {'minigame/state/status':'active'};
+    if (mgState?.type === 'tag' && pList.length > 0)
+      updates['minigame/state/it'] = pList[Math.floor(Math.random()*pList.length)];
+    FB.ref().update(updates);
+  }, [mgPlayers, mgState]);
+
+  const pickCorner = useCallback(() => {
+    const corners = ['A','B','C','D'];
+    const picked = corners[Math.floor(Math.random()*corners.length)];
+    FB.ref('minigame/state/corner').set(picked);
+    const zoneId = MG_CORNER_ID[picked];
+    const map = getMGMap('corners');
+    Object.entries(mgPlayers).forEach(([uname,pd]) => {
+      if (pd.eliminated) return;
+      const tile = map[pd.y]?.[pd.x];
+      if (tile === zoneId) FB.ref('minigame/players/'+uname).update({eliminated:true});
+    });
+    // Check if only one left
+    setTimeout(() => {
+      FB.ref('minigame/players').once('value').then(snap => {
+        const all = snap.val()||{};
+        const alive = Object.entries(all).filter(([_,p])=>!p.eliminated);
+        if (alive.length <= 1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||null,type:'corners'});
+      });
+    }, 800);
+  }, [mgPlayers]);
+
+  const endMinigame = useCallback(() => {
+    const alive = Object.entries(mgPlayers).filter(([_,p])=>!p.eliminated);
+    let winner = null;
+    if (mgState?.type === 'tag') {
+      const top = Object.entries(mgPlayers).sort((a,b)=>(b[1].score||0)-(a[1].score||0))[0];
+      winner = top?.[0] || null;
+    } else if (alive.length >= 1) {
+      winner = alive[0][0];
+    }
+    FB.ref('minigame/state').update({status:'ended',winner,type:mgState?.type});
+  }, [mgPlayers, mgState]);
+
+  const leaveMG = useCallback(() => {
+    FB.ref('minigame/players/'+me).remove();
+    inMGRef.current = false;
+    setInMG(false); setMgResult(null);
+  }, [me]);
+
+  const sendChat = () => {
+    const t = chatInp.trim(); if (!t || !avatar) return;
+    FB.ref('rpg/chat').push({ author:me, content:t, ts:Date.now() });
+    setChatInp(''); setChatCount(c=>c+1);
+  };
+
+  // Memoize tile grids — they never change, so React never re-diffs them on movement
+  const rpgTiles = useMemo(() => RPG_MAP.map((row,ry) => (
+    <div key={ry} style={{display:'flex'}}>
+      {row.map((tile,rx) => (
+        <div key={rx} style={{width:TILE,height:TILE,flexShrink:0,background:TILE_BG[tile]||TILE_BG[0],border:'1px solid rgba(0,0,0,.22)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,userSelect:'none',boxSizing:'border-box'}}>
+          {TILE_ICN[tile]||''}
+        </div>
+      ))}
+    </div>
+  )), []);
+
+  const mgTileType = mgState ? mgState.type : null;
+  const mgTiles = useMemo(() => {
+    if (!mgTileType) return null;
+    const m = getMGMap(mgTileType);
+    return m.map((row,ry) => (
+      <div key={ry} style={{display:'flex'}}>
+        {row.map((tile,rx) => {
+          const cz = MG_CORNER_COLOR[tile];
+          const lb = MG_CORNER_LABEL[tile];
+          return (
+            <div key={rx} style={{width:TILE,height:TILE,flexShrink:0,background:MG_TILE_BG[tile]||MG_TILE_BG[0],border:'1px solid rgba(0,0,0,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:lb?13:18,fontWeight:lb?900:400,color:cz||'inherit',boxSizing:'border-box',userSelect:'none',textShadow:lb?'0 0 8px '+cz:'none'}}>
+              {lb||MG_TILE_ICN[tile]||''}
+            </div>
+          );
+        })}
+      </div>
+    ));
+  }, [mgTileType]);
+
+  // ── Avatar picker screen ──────────────────────────────────────
+  if (!avatar) return (
+    <div style={{position:'fixed',inset:0,background:'linear-gradient(160deg,#0a0a1a,#0d1a0d)',zIndex:900,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:28,padding:20}}>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:52,marginBottom:10,filter:'drop-shadow(0 0 20px rgba(253,203,110,.4))'}}>🗺</div>
+        <h2 style={{fontSize:26,fontWeight:900,margin:0,background:'linear-gradient(135deg,#fdcb6e,#e17055)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',letterSpacing:.5}}>Enter the RPG World</h2>
+        <p style={{color:'#444',fontSize:14,marginTop:8}}>Choose your avatar to begin your adventure</p>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,maxWidth:480}}>
+        {RPG_AVATARS.map((av, i) => {
+          const avCol = AV_COLORS[i % AV_COLORS.length];
+          return (
+            <div key={av.id} onClick={()=>setAvatar(av)}
+              style={{padding:'16px 10px 12px',border:`2px solid ${avCol}33`,borderRadius:16,cursor:'pointer',textAlign:'center',background:`linear-gradient(145deg,${avCol}0d,#111120)`,transition:'all .18s',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=avCol;e.currentTarget.style.background=`linear-gradient(145deg,${avCol}22,#111120)`;e.currentTarget.style.transform='scale(1.06) translateY(-2px)';e.currentTarget.style.boxShadow=`0 8px 24px ${avCol}33`;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=`${avCol}33`;e.currentTarget.style.background=`linear-gradient(145deg,${avCol}0d,#111120)`;e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='';}}>
+              <div style={{width:56,height:56,borderRadius:'50%',background:`radial-gradient(circle at 38% 32%,${avCol}55,${avCol}18)`,border:`3px solid ${avCol}`,boxShadow:`0 0 18px ${avCol}44,inset 0 1px 0 rgba(255,255,255,.2)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:32,position:'relative',overflow:'hidden'}}>
+                <div style={{position:'absolute',top:3,left:9,width:18,height:10,background:'rgba(255,255,255,.22)',borderRadius:'50%',transform:'rotate(-30deg)'}}/>
+                {av.emoji}
+              </div>
+              <div style={{fontSize:11,color:'#aaa',fontWeight:700,letterSpacing:.3}}>{av.name}</div>
+            </div>
+          );
+        })}
+      </div>
+      <button onClick={onClose} style={{marginTop:4,padding:'9px 24px',borderRadius:10,border:'1px solid rgba(255,255,255,.06)',background:'rgba(255,255,255,.04)',color:'#555',cursor:'pointer',fontSize:13,fontFamily:'inherit',transition:'all .15s'}} onMouseEnter={e=>e.currentTarget.style.color='#888'} onMouseLeave={e=>e.currentTarget.style.color='#555'}>✕ Cancel</button>
+    </div>
+  );
+
+  // ── Shared renderers ─────────────────────────────────────────
+  const DPad = () => (
+    <div style={{display:'grid',gridTemplateColumns:'repeat(3,30px)',gridTemplateRows:'repeat(3,30px)',gap:2,flexShrink:0}}>
+      {[[null,'↑',null],['←','·','→'],[null,'↓',null]].map((row,ri)=>row.map((btn,ci)=>(
+        <button key={`${ri}${ci}`} onClick={()=>{if(btn==='↑')move(0,-1);if(btn==='↓')move(0,1);if(btn==='←')move(-1,0);if(btn==='→')move(1,0);}}
+          style={{background:btn&&btn!=='·'?'rgba(91,141,238,.2)':'transparent',border:btn&&btn!=='·'?'1px solid rgba(91,141,238,.3)':'none',borderRadius:4,color:'#5b8dee',cursor:btn&&btn!=='·'?'pointer':'default',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+          {btn!=='·'?btn:''}
+        </button>
+      )))}
+    </div>
+  );
+
+  const ChatBar = () => (
+    <div style={{background:'#111',borderTop:'1px solid rgba(255,255,255,.06)',flexShrink:0}}>
+      <div ref={chatBoxRef} style={{height:90,overflowY:'auto',padding:'5px 14px'}}>
+        {chatMsgs.length===0&&<div style={{color:'#333',fontSize:12,padding:'6px 0'}}>No messages — say hello! 👋</div>}
+        {chatMsgs.map(m=>{
+          const ud=userData[m.author]||{};
+          const pl=players[m.author]||{};
+          const isSys=m.author==='__system__';
+          return(
+            <div key={m.id} style={{marginBottom:2,fontSize:12,display:'flex',alignItems:'baseline',gap:5}}>
+              {!isSys&&<span style={{fontSize:14}}>{pl.avatar||'👤'}</span>}
+              <span style={{color:isSys?'#555':ud.color||avColor(m.author),fontWeight:700}}>{isSys?'':((ud.display||m.author)+': ')}</span>
+              <span style={{color:isSys?'#444':m.author===me?'#dde0f8':'#888'}}>{m.content}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:'flex',gap:8,padding:'5px 14px 9px'}}>
+        <DPad />
+        <input style={{flex:1,background:'#1a1a28',border:'1px solid rgba(255,255,255,.08)',borderRadius:8,padding:'7px 12px',color:'#eee',fontSize:13,outline:'none',fontFamily:'inherit'}}
+          placeholder="Chat in world…" value={chatInp}
+          onChange={e=>setChatInp(e.target.value)}
+          onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();sendChat();}}} />
+        <button onClick={sendChat} style={{padding:'7px 14px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#fdcb6e,#e17055)',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:'inherit'}}>↑</button>
+      </div>
+    </div>
+  );
+
+  const renderPlayers = (pMap, currentPos, isMinigame) => {
+    const map = isMinigame ? getMGMap(mgState?.type) : RPG_MAP;
+    return Object.entries(pMap).map(([uname, pd]) => {
+      const isItPlayer = isMinigame && mgState?.type === 'tag' && mgState?.it === uname;
+      const pColor = pd.color || avColor(uname);
+      return (
+        <div key={uname} style={{position:'absolute',left:pd.x*TILE,top:pd.y*TILE,width:TILE,height:TILE,display:'flex',alignItems:'center',justifyContent:'center',transition:'left .18s,top .18s',zIndex:uname===me?3:2,pointerEvents:'none'}}>
+          <div style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+            <div style={{fontSize:9,fontWeight:800,color:'#fff',background:uname===me?'rgba(91,141,238,.9)':'rgba(0,0,0,.75)',padding:'1px 5px',borderRadius:4,whiteSpace:'nowrap',boxShadow:'0 1px 4px rgba(0,0,0,.5)'}}>
+              {pd.name||uname}{isItPlayer?' 🏷':''}
+            </div>
+            <AvatarSprite emoji={pd.avatar||'👤'} color={pColor} size={34} glow={uname===me} isMe={uname===me} isIt={isItPlayer} eliminated={pd.eliminated} />
+          </div>
+        </div>
+      );
+    });
+  };
+
+  // ── Mini-game invite overlay ──────────────────────────────────
+  const InviteOverlay = mgInvite && !inMG && (
+    <div style={{position:'absolute',bottom:180,left:'50%',transform:'translateX(-50%)',background:'#1a1a2a',border:'1px solid rgba(255,255,255,.1)',borderRadius:16,padding:'16px 20px',zIndex:20,boxShadow:'0 8px 32px rgba(0,0,0,.8)',textAlign:'center',minWidth:260}}>
+      <div style={{fontSize:28,marginBottom:6}}>{mgInvite.icon}</div>
+      <div style={{fontWeight:800,fontSize:15,color:'#e0e4ff',marginBottom:4}}>{mgInvite.name}</div>
+      <div style={{fontSize:12,color:'#555',marginBottom:12}}>{mgInvite.from} started a mini-game!</div>
+      <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+        <button onClick={joinMinigame} style={{padding:'7px 20px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#43b581,#2ecc71)',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:13,fontFamily:'inherit'}}>Join!</button>
+        <button onClick={()=>{FB.ref('minigame/invites/'+me).remove();setMgInvite(null);}} style={{padding:'7px 14px',borderRadius:8,border:'none',background:'rgba(255,255,255,.05)',color:'#666',cursor:'pointer',fontSize:13,fontFamily:'inherit'}}>Decline</button>
+      </div>
+    </div>
+  );
+
+  // ── Mini-game picker modal ────────────────────────────────────
+  const MGPickerModal = showMGPick && (
+    <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.7)',zIndex:30,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{background:'#1a1a2a',border:'1px solid rgba(255,255,255,.08)',borderRadius:16,padding:24,width:380,maxWidth:'90vw'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <span style={{fontWeight:800,fontSize:16,color:'#e0e4ff'}}>🎮 Start a Mini-Game</span>
+          <button onClick={()=>setShowMGPick(false)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',fontSize:22}}>×</button>
+        </div>
+        <div style={{fontSize:11,color:'#444',marginBottom:16}}>All players currently in the world will be invited.</div>
+        {MINIGAME_TYPES.map(type => (
+          <div key={type.id} onClick={()=>startMinigame(type)}
+            style={{padding:'12px 14px',borderRadius:10,marginBottom:8,background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.06)',cursor:'pointer',display:'flex',alignItems:'center',gap:12,transition:'all .15s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background='rgba(253,203,110,.06)';e.currentTarget.style.borderColor='rgba(253,203,110,.2)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,.02)';e.currentTarget.style.borderColor='rgba(255,255,255,.06)';}}>
+            <span style={{fontSize:28}}>{type.icon}</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:13,color:'#dde0f8',marginBottom:2}}>{type.name}</div>
+              <div style={{fontSize:11,color:'#555'}}>{type.desc}</div>
+            </div>
+            <div style={{fontSize:11,color:'#fdcb6e',fontWeight:700,flexShrink:0}}>+{type.aura} Aura</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Mini-game result screen ───────────────────────────────────
+  if (inMG && mgResult) {
+    const won = mgResult.winner === me;
+    const type = MINIGAME_TYPES.find(t=>t.id===mgResult.type);
+    const winnerData = mgPlayers[mgResult.winner]||{};
+    return (
+      <div style={{position:'fixed',inset:0,background:'#0a0a14',zIndex:900,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:20,fontFamily:'inherit'}}>
+        <div style={{fontSize:60,filter:`drop-shadow(0 0 30px ${won?'gold':'#555'})`}}>{won?'🏆':'😔'}</div>
+        <div style={{fontSize:28,fontWeight:900,color:won?'#fdcb6e':'#888'}}>{won?'You Won!':'Game Over'}</div>
+        {mgResult.winner && <div style={{fontSize:15,color:'#888'}}>Winner: <span style={{color:'#fff',fontWeight:700}}>{winnerData.name||mgResult.winner} {winnerData.avatar||''}</span></div>}
+        {won&&type&&<div style={{padding:'8px 20px',borderRadius:10,background:'rgba(253,203,110,.1)',border:'1px solid rgba(253,203,110,.2)',color:'#fdcb6e',fontWeight:700,fontSize:14}}>+{type.aura} Aura earned!</div>}
+        {mgState?.type==='tag'&&(
+          <div style={{display:'flex',gap:12,flexWrap:'wrap',justifyContent:'center',maxWidth:400}}>
+            {Object.entries(mgPlayers).sort((a,b)=>(b[1].score||0)-(a[1].score||0)).map(([u,p])=>(
+              <div key={u} style={{textAlign:'center',padding:'8px 12px',borderRadius:10,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.06)'}}>
+                <div style={{fontSize:24}}>{p.avatar}</div>
+                <div style={{fontSize:11,color:'#aaa'}}>{p.name||u}</div>
+                <div style={{fontSize:11,color:'#fdcb6e'}}>{p.score||0} tags</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:'flex',gap:10,marginTop:8}}>
+          <button onClick={leaveMG} style={{padding:'10px 28px',borderRadius:10,border:'none',background:'linear-gradient(135deg,#fdcb6e,#e17055)',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:'inherit'}}>Back to World</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Mini-game world ───────────────────────────────────────────
+  if (inMG && mgState) {
+    const mgMap = getMGMap(mgState.type);
+    const mgType = MINIGAME_TYPES.find(t=>t.id===mgState.type)||MINIGAME_TYPES[0];
+    const myMGData = mgPlayers[me]||{};
+    const isLobby = mgState.status==='lobby';
+    const isActive = mgState.status==='active';
+    const lightColor = mgState.light==='green'?'#2ecc71':'#e74c3c';
+    const isIt = mgState.it===me;
+
+    return (
+      <div style={{position:'fixed',inset:0,background:'#060610',zIndex:900,display:'flex',flexDirection:'column',fontFamily:'inherit'}}>
+        {MGPickerModal}
+
+        {/* MG Header */}
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'7px 14px',background:'#0d0d1a',borderBottom:'1px solid rgba(255,255,255,.07)',flexShrink:0}}>
+          <span style={{fontSize:20}}>{mgType.icon}</span>
+          <span style={{fontWeight:900,fontSize:14,color:'#e0e4ff'}}>{mgType.name}</span>
+
+          {/* RLGL light indicator */}
+          {mgState.type==='rlgl'&&isActive&&(
+            <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(0,0,0,.4)',border:`1px solid ${lightColor}44`}}>
+              <div style={{width:12,height:12,borderRadius:'50%',background:lightColor,boxShadow:`0 0 10px ${lightColor}`}}/>
+              <span style={{fontSize:12,fontWeight:800,color:lightColor}}>{mgState.light?.toUpperCase()} LIGHT</span>
+            </div>
+          )}
+
+          {/* 4C corner indicator */}
+          {mgState.type==='corners'&&isActive&&mgState.corner&&(
+            <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(231,76,60,.15)',border:'1px solid rgba(231,76,60,.3)',fontSize:12,fontWeight:800,color:'#e74c3c'}}>
+              ❌ Corner {mgState.corner} eliminated!
+            </div>
+          )}
+
+          {/* Tag "it" indicator */}
+          {mgState.type==='tag'&&isActive&&(
+            <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:isIt?'rgba(231,76,60,.2)':'rgba(0,0,0,.3)',border:`1px solid ${isIt?'rgba(231,76,60,.4)':'rgba(255,255,255,.07)'}`,fontSize:12,fontWeight:800,color:isIt?'#e74c3c':'#666'}}>
+              {isIt?'🏷 YOU ARE IT!':'🏃 Run from '+(mgPlayers[mgState.it]?.name||mgState.it||'?')}
+            </div>
+          )}
+
+          {isLobby&&<span style={{marginLeft:8,fontSize:11,color:'#fdcb6e',fontWeight:700}}>⏳ Waiting for players…</span>}
+          {isActive&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
+
+          <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+            <span style={{fontSize:11,color:'#333'}}>👥 {Object.keys(mgPlayers).length}</span>
+            {isAdmin&&isLobby&&<button onClick={startGame} style={{padding:'5px 12px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#43b581,#2ecc71)',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>▶ Start</button>}
+            {isAdmin&&isActive&&mgState.type==='corners'&&<button onClick={pickCorner} style={{padding:'5px 12px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#e74c3c,#c0392b)',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>🎲 Pick Corner</button>}
+            {isAdmin&&isActive&&<button onClick={endMinigame} style={{padding:'5px 12px',borderRadius:7,border:'1px solid rgba(255,255,255,.08)',background:'transparent',color:'#555',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>End</button>}
+            <button onClick={leaveMG} style={{padding:'5px 12px',borderRadius:7,border:'none',background:'rgba(255,80,80,.1)',color:'#ff7070',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>✕ Leave</button>
+          </div>
+        </div>
+
+        {/* Lobby screen */}
+        {isLobby&&(
+          <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16,background:'#080814'}}>
+            <div style={{fontSize:52}}>{mgType.icon}</div>
+            <div style={{fontSize:20,fontWeight:900,color:'#e0e4ff'}}>{mgType.name}</div>
+            <div style={{fontSize:13,color:'#555',maxWidth:320,textAlign:'center'}}>{mgType.desc}</div>
+            <div style={{marginTop:8,padding:'12px 20px',borderRadius:12,background:'rgba(255,255,255,.03)',border:'1px solid rgba(255,255,255,.06)',minWidth:200}}>
+              <div style={{fontSize:11,color:'#444',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Players Ready</div>
+              {Object.entries(mgPlayers).map(([u,p])=>(
+                <div key={u} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                  <AvatarSprite emoji={p.avatar||'👤'} color={p.color||avColor(u)} size={28} glow={u===me} isMe={u===me}/>
+                  <span style={{fontSize:13,color:u===me?'#fff':'#aaa',fontWeight:u===me?700:400}}>{p.name||u}{u===me?' (you)':''}</span>
+                  <span style={{marginLeft:'auto',fontSize:11,color:'#43b581'}}>✓</span>
+                </div>
+              ))}
+              {Object.keys(mgPlayers).length===0&&<div style={{fontSize:12,color:'#333'}}>Waiting…</div>}
+            </div>
+            {!isAdmin&&<div style={{fontSize:12,color:'#444'}}>Waiting for {mgState.startedBy} to start the game…</div>}
+            {isAdmin&&<div style={{fontSize:12,color:'#555'}}>Press <span style={{color:'#43b581',fontWeight:700}}>▶ Start</span> when everyone has joined.</div>}
+          </div>
+        )}
+
+        {/* Active mini-game map — camera follows player */}
+        {isActive&&(
+          <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+            <div style={{flex:1,overflow:'hidden',position:'relative',background:'#080814'}}>
+              <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none'}}>
+                <div style={{position:'absolute',top:`calc(50% - ${mgPos.y*TILE+TILE/2}px)`,left:`calc(50% - ${mgPos.x*TILE+TILE/2}px)`}}>
+                  {mgTiles}
+                  {renderPlayers(mgPlayers, mgPos, true)}
+                </div>
+              </div>
+            </div>
+
+            {/* MG player sidebar */}
+            <div style={{width:180,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',overflowY:'auto',flexShrink:0}}>
+              <div style={{padding:'7px 10px',fontSize:9,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)'}}>
+                Players — {Object.keys(mgPlayers).length}
+              </div>
+              {Object.entries(mgPlayers).sort((a,b)=>(b[1].score||0)-(a[1].score||0)).map(([u,p])=>(
+                <div key={u} style={{display:'flex',alignItems:'center',gap:7,padding:'7px 10px',borderBottom:'1px solid rgba(255,255,255,.04)',opacity:p.eliminated?0.45:1}}>
+                  <AvatarSprite emoji={p.avatar||'👤'} color={p.color||avColor(u)} size={28} isMe={u===me} isIt={mgState.type==='tag'&&mgState.it===u} eliminated={p.eliminated}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:11,color:u===me?'#fff':'#bbb',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||u}</div>
+                    {mgState.type==='tag'&&<div style={{fontSize:9,color:'#fdcb6e'}}>{p.score||0} tags</div>}
+                    {p.eliminated&&<div style={{fontSize:9,color:'#e74c3c'}}>eliminated</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <ChatBar />
+      </div>
+    );
+  }
+
+  // ── Main RPG world ────────────────────────────────────────────
+  const others = Object.entries(players).filter(([u])=>u!==me);
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'#0a0a0a',zIndex:900,display:'flex',flexDirection:'column',fontFamily:'inherit'}}>
+      {MGPickerModal}
+      {InviteOverlay}
+
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',background:'#111',borderBottom:'1px solid rgba(255,255,255,.06)',flexShrink:0}}>
+        <AvatarSprite emoji={avatar.emoji} color={col} size={32} glow isMe />
+        <span style={{fontWeight:900,fontSize:15,background:'linear-gradient(135deg,#fdcb6e,#e17055)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',marginLeft:2}}>AuraMail RPG</span>
+        <span style={{fontSize:11,color:'#333',marginLeft:2}}>WASD / ↑↓←→</span>
+        <div style={{marginLeft:'auto',display:'flex',gap:7,alignItems:'center'}}>
+          <span style={{fontSize:11,color:'#444'}}>👥 {Object.keys(players).length}</span>
+          {isAdmin&&<button onClick={()=>setShowMGPick(true)} style={{padding:'5px 12px',borderRadius:7,border:'1px solid rgba(253,203,110,.25)',background:'rgba(253,203,110,.06)',color:'#fdcb6e',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>🎮 Mini-Games</button>}
+          <button onClick={()=>setShowQ(p=>!p)} style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(255,255,255,.07)',background:'rgba(255,255,255,.03)',color:'#888',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>📋</button>
+          <button onClick={onClose} style={{padding:'5px 12px',borderRadius:7,border:'none',background:'rgba(255,80,80,.1)',color:'#ff7070',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>✕ Exit</button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+
+        {/* Map — camera follows player */}
+        <div style={{flex:1,overflow:'hidden',position:'relative',background:'#0d0d0a'}}>
+          <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none'}}>
+            <div style={{position:'absolute',top:`calc(50% - ${pos.y*TILE+TILE/2}px)`,left:`calc(50% - ${pos.x*TILE+TILE/2}px)`}}>
+              {rpgTiles}
+              {renderPlayers({...players,[me]:{x:pos.x,y:pos.y,avatar:avatar.emoji,name:disp,color:col}}, pos, false)}
+            </div>
+          </div>
+        </div>
+
+        {/* Right panel */}
+        <div style={{width:210,background:'#111',borderLeft:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
+          <div style={{padding:'8px 12px',fontSize:10,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)',flexShrink:0}}>
+            Players — {Object.keys(players).length}
+          </div>
+          {/* Me */}
+          <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'rgba(91,141,238,.07)',borderBottom:'1px solid rgba(255,255,255,.04)'}}>
+            <AvatarSprite emoji={avatar.emoji} color={col} size={32} glow isMe />
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,color:'#fff',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{disp} <span style={{fontSize:10,color:'#5b8dee'}}>(you)</span></div>
+              <div style={{fontSize:10,color:'#444'}}><span style={{color:'#fdcb6e'}}>{(auraMap[me]||0).toLocaleString()} Aura</span></div>
+            </div>
+          </div>
+          {others.length===0&&<div style={{padding:16,color:'#333',fontSize:12,textAlign:'center'}}>No other players yet</div>}
+          {others.map(([uname,pd])=>{
+            const pc=pd.color||avColor(uname);
+            return(
+              <div key={uname} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderBottom:'1px solid rgba(255,255,255,.04)'}}>
+                <AvatarSprite emoji={pd.avatar||'👤'} color={pc} size={30} />
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:'#ccc',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pd.name||uname}</div>
+                  <div style={{fontSize:10,color:'#444'}}><span style={{color:'#fdcb6e'}}>{(auraMap[uname]||0).toLocaleString()} Aura</span></div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Quest tracker */}
+          <div style={{marginTop:'auto',borderTop:'1px solid rgba(255,255,255,.05)',padding:'8px 12px',flexShrink:0}}>
+            <div style={{fontSize:10,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,marginBottom:8}}>Active Quests</div>
+            {RPG_QUESTS.filter(q=>!doneQ[q.id]).slice(0,3).map(q=>{
+              const prog=q.type==='steps'?Math.min(steps,q.target):q.type==='chat'?Math.min(chatCount,q.target):0;
+              return (
+                <div key={q.id} style={{marginBottom:8}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#666',marginBottom:3}}>
+                    <span>{q.icon} {q.name}</span><span style={{color:'#fdcb6e'}}>+{q.reward}</span>
+                  </div>
+                  {(q.type==='steps'||q.type==='chat')&&(
+                    <div style={{height:3,background:'rgba(255,255,255,.06)',borderRadius:2}}>
+                      <div style={{height:'100%',background:'#5b8dee',borderRadius:2,width:`${(prog/(q.target||1))*100}%`,transition:'width .3s'}}/>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {RPG_QUESTS.every(q=>doneQ[q.id])&&<div style={{fontSize:11,color:'#43b581'}}>✅ All quests done!</div>}
+          </div>
+        </div>
+      </div>
+
+      <ChatBar />
+
+      {/* Quests overlay */}
+      {showQ&&(
+        <div style={{position:'absolute',top:52,right:216,background:'#1a1a2a',border:'1px solid rgba(255,255,255,.08)',borderRadius:12,padding:16,width:290,zIndex:10,boxShadow:'0 8px 32px rgba(0,0,0,.7)',maxHeight:'60vh',overflowY:'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <span style={{fontWeight:800,color:'#e0e4ff',fontSize:15}}>📋 Quests</span>
+            <button onClick={()=>setShowQ(false)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',fontSize:20}}>×</button>
+          </div>
+          {RPG_QUESTS.map(q=>{
+            const done=doneQ[q.id];
+            return(
+              <div key={q.id} style={{padding:'10px 12px',borderRadius:8,marginBottom:6,background:done?'rgba(67,181,129,.05)':'rgba(255,255,255,.02)',border:`1px solid ${done?'rgba(67,181,129,.2)':'rgba(255,255,255,.05)'}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}>
+                  <span style={{fontSize:13,fontWeight:700,color:done?'#43b581':'#ccc'}}>{q.icon} {q.name}{done?' ✓':''}</span>
+                  <span style={{fontSize:12,color:'#fdcb6e',fontWeight:700}}>+{q.reward}</span>
+                </div>
+                <div style={{fontSize:11,color:'#444'}}>{q.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN APP
 ═══════════════════════════════════════════════════════════════ */
 function MainApp({ me, onLogout }) {
@@ -1862,6 +2729,7 @@ function MainApp({ me, onLogout }) {
   const [userItems,        setUserItems]        = useState({});
   const [showLottery,      setShowLottery]      = useState(false);
   const [showShop,         setShowShop]         = useState(false);
+  const [showRPG,          setShowRPG]          = useState(false);
   const [challengeTarget,  setChallengeTarget]  = useState(null);
   const [incomingChallenge,setIncomingChallenge]= useState(null);
   const [incomingChallengeId,setIncomingChallengeId]= useState(null);
@@ -2142,6 +3010,14 @@ function MainApp({ me, onLogout }) {
     addAura(me, delta);
   }, [me, addAura]);
 
+  const onEarnAura = useCallback((amount, questName) => {
+    addAura(me, amount);
+    FB.ref('messages/' + activeCh).push({
+      author: '__system__', ts: Date.now(), sys: true,
+      content: `🗺 ${me} completed RPG quest "${questName}" and earned ${amount} Aura!`
+    });
+  }, [me, activeCh, addAura]);
+
   const editMsg = useCallback((chId, msgId, content) => {
     FB.ref('messages/' + chId + '/' + msgId).update({ content, edited: true });
   }, []);
@@ -2284,6 +3160,7 @@ function MainApp({ me, onLogout }) {
         myTickets={myTickets}
         onOpenLottery={() => setShowLottery(true)}
         onOpenShop={() => setShowShop(true)}
+        onOpenRPG={() => setShowRPG(true)}
       />
 
       {channel
@@ -2388,6 +3265,17 @@ function MainApp({ me, onLogout }) {
           onSend={sendAdminQuiz}
         />
       )}
+
+      {showRPG && (
+        <RPGWorld
+          me={me}
+          userData={users}
+          auraMap={auraMap}
+          admins={admins}
+          onClose={() => setShowRPG(false)}
+          onEarnAura={onEarnAura}
+        />
+      )}
     </div>
   );
 }
@@ -2431,7 +3319,11 @@ function App() {
   return <MainApp me={me} onLogout={logout} />;
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+try {
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+} catch(e) {
+  document.getElementById('root').innerHTML = '<pre style="color:red;padding:20px;white-space:pre-wrap;">' + e.stack + '</pre>';
+}
 </script>
 </body>
 </html>
