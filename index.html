@@ -2146,11 +2146,19 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     FB.ref('minigame/state/rewarded').set(true);
   }, [mgResult]);
 
-  // Listen for invite
+  // Listen for invite — when a new invite arrives, reset out of any stale result screen
   useEffect(() => {
     if (!avatar) return;
     const ref = FB.ref('minigame/invites/' + me);
-    ref.on('value', snap => setMgInvite(snap.val() || null));
+    ref.on('value', snap => {
+      const invite = snap.val() || null;
+      setMgInvite(invite);
+      if (invite) {
+        // Bring player back to RPG world so they can see and accept the invite
+        setMgResult(null);
+        setInMG(false);
+      }
+    });
     return () => ref.off('value');
   }, [avatar, me]);
 
@@ -2338,7 +2346,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     };
     rafId=requestAnimationFrame(loop);
     return () => { done=true; cancelAnimationFrame(rafId); };
-  }, [inMG, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, mgState?.startedBy, me, mgState?.ppBall?.ts]);
+  // !!mgState?.ppBall = only re-run when ball goes null→set (match start), not on every periodic write
+  }, [inMG, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, mgState?.startedBy, me, !!mgState?.ppBall]);
 
   // Sync refs — move() reads these instead of closure state so it never re-creates
   useEffect(() => { inMGRef.current = inMG; }, [inMG]);
@@ -2792,7 +2801,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
         {isTouch && Joystick()}
-        {isTouch&&inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&(
+        {(isTouch||isMobile)&&inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&(
           <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none'}}>🔫</button>
         )}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
