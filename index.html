@@ -2393,7 +2393,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
   }, []);
 
-  // Track movement direction for shooting
+  // Track movement direction for shooting (keyboard + joystick)
   useEffect(() => {
     const k = keysRef.current;
     let dx = 0, dy = 0;
@@ -2401,6 +2401,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     else if (k.has('ArrowDown')||k.has('s')) dy=1;
     if (k.has('ArrowLeft')||k.has('a')) dx=-1;
     else if (k.has('ArrowRight')||k.has('d')) dx=1;
+    if (dx===0&&dy===0) { const j=joystickDirRef.current; dx=j.dx; dy=j.dy; }
     if (dx!==0||dy!==0) lastDirRef.current={dx,dy};
   });
 
@@ -2418,7 +2419,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       else if (k.has('ArrowRight') || k.has('d')) dx =  1;
       // Joystick input (mobile)
       if (dx === 0 && dy === 0) { const j = joystickDirRef.current; dx = j.dx; dy = j.dy; }
-      if (dx !== 0 || dy !== 0) { move(dx, dy); lastMoveRef.current = now; }
+      if (dx !== 0 || dy !== 0) { lastDirRef.current = {dx, dy}; move(dx, dy); lastMoveRef.current = now; }
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
@@ -2801,8 +2802,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
         {isTouch && Joystick()}
-        {(isTouch||isMobile)&&inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&(
-          <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none'}}>🔫</button>
+        {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&(
+          <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none',zIndex:5}}>🔫</button>
         )}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
