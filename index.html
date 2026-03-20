@@ -2006,6 +2006,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const [chatCount, setChatCount] = useState(0);
   const [doneQ,     setDoneQ]     = useState({});
   const [showQ,     setShowQ]     = useState(false);
+  const [showPanel, setShowPanel] = useState(false);
 
   // Mini-game state
   const [mgState,    setMgState]    = useState(null);
@@ -2703,7 +2704,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             </div>
 
             {/* MG player sidebar */}
-            <div style={{width:MG_PANEL_W,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',overflowY:'auto',flexShrink:0}}>
+            {(!isMobile||showPanel)&&<div style={{width:isMobile?'70vw':MG_PANEL_W,position:isMobile?'absolute':undefined,right:isMobile?0:undefined,top:isMobile?0:undefined,bottom:isMobile?0:undefined,zIndex:isMobile?20:undefined,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',overflowY:'auto',flexShrink:0}}>
               <div style={{padding:'7px 10px',fontSize:9,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)'}}>
                 Players — {Object.keys(mgPlayers).length}
               </div>
@@ -2716,7 +2717,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                   </div>
                 </div>
               ))}
-            </div>
+            </div>}
           </div>
           );
         })()}
@@ -2742,6 +2743,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         <div style={{marginLeft:'auto',display:'flex',gap:isMobile?4:7,alignItems:'center',flexShrink:0}}>
           <span style={{fontSize:11,color:'#444'}}>👥 {Object.keys(players).length}</span>
           {isAdmin&&<button onClick={()=>setShowMGPick(true)} style={{padding:isMobile?'5px 8px':'5px 12px',borderRadius:7,border:'1px solid rgba(253,203,110,.25)',background:'rgba(253,203,110,.06)',color:'#fdcb6e',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>{isMobile?'🎮':'🎮 Mini-Games'}</button>}
+          {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{padding:'5px 10px',borderRadius:7,border:'1px solid rgba(255,255,255,.07)',background:'rgba(255,255,255,.03)',color:'#aaa',cursor:'pointer',fontSize:16,fontFamily:'inherit',lineHeight:1,display:'flex',flexDirection:'column',gap:3,alignItems:'center',justifyContent:'center'}}>
+            <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
+            <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
+            <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
+          </button>}
           <button onClick={()=>setShowQ(p=>!p)} style={{padding:'5px 10px',borderRadius:7,border:'1px solid rgba(255,255,255,.07)',background:'rgba(255,255,255,.03)',color:'#888',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>📋</button>
           <button onClick={onClose} style={{padding:'5px 10px',borderRadius:7,border:'none',background:'rgba(255,80,80,.1)',color:'#ff7070',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>{isMobile?'✕':'✕ Exit'}</button>
         </div>
@@ -2761,7 +2767,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         </div>
 
         {/* Right panel */}
-        <div style={{width:PANEL_W,background:'#111',borderLeft:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
+        {(!isMobile||showPanel)&&<div style={{width:isMobile?'70vw':PANEL_W,position:isMobile?'absolute':undefined,right:isMobile?0:undefined,top:isMobile?0:undefined,bottom:isMobile?0:undefined,zIndex:isMobile?20:undefined,background:'#111',borderLeft:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
           <div style={{padding:'8px 12px',fontSize:10,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)',flexShrink:0}}>
             Players — {Object.keys(players).length}
           </div>
@@ -2807,7 +2813,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             })}
             {RPG_QUESTS.every(q=>doneQ[q.id])&&<div style={{fontSize:11,color:'#43b581'}}>✅ All quests done!</div>}
           </div>
-        </div>
+        </div>}
       </div>
 
       {ChatBar()}
