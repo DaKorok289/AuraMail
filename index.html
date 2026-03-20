@@ -2743,11 +2743,6 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         <div style={{marginLeft:'auto',display:'flex',gap:isMobile?4:7,alignItems:'center',flexShrink:0}}>
           <span style={{fontSize:11,color:'#444'}}>👥 {Object.keys(players).length}</span>
           {isAdmin&&<button onClick={()=>setShowMGPick(true)} style={{padding:isMobile?'5px 8px':'5px 12px',borderRadius:7,border:'1px solid rgba(253,203,110,.25)',background:'rgba(253,203,110,.06)',color:'#fdcb6e',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>{isMobile?'🎮':'🎮 Mini-Games'}</button>}
-          {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{padding:'5px 10px',borderRadius:7,border:'1px solid rgba(255,255,255,.07)',background:'rgba(255,255,255,.03)',color:'#aaa',cursor:'pointer',fontSize:16,fontFamily:'inherit',lineHeight:1,display:'flex',flexDirection:'column',gap:3,alignItems:'center',justifyContent:'center'}}>
-            <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
-            <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
-            <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
-          </button>}
           <button onClick={()=>setShowQ(p=>!p)} style={{padding:'5px 10px',borderRadius:7,border:'1px solid rgba(255,255,255,.07)',background:'rgba(255,255,255,.03)',color:'#888',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>📋</button>
           <button onClick={onClose} style={{padding:'5px 10px',borderRadius:7,border:'none',background:'rgba(255,80,80,.1)',color:'#ff7070',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>{isMobile?'✕':'✕ Exit'}</button>
         </div>
@@ -2815,6 +2810,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           </div>
         </div>}
       </div>
+
+      {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{position:'absolute',bottom:16,left:16,zIndex:25,width:44,height:44,borderRadius:10,border:'1px solid rgba(255,255,255,.1)',background:'rgba(17,17,17,.9)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center'}}>
+        <span style={{display:'block',width:18,height:2,background:'currentColor',borderRadius:1}}/>
+        <span style={{display:'block',width:18,height:2,background:'currentColor',borderRadius:1}}/>
+        <span style={{display:'block',width:18,height:2,background:'currentColor',borderRadius:1}}/>
+      </button>}
 
       {ChatBar()}
 
