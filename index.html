@@ -353,6 +353,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .lottery-result .res-icon{font-size:64px;display:block;margin-bottom:12px;
   animation:popIn .4s cubic-bezier(.175,.885,.32,1.275);}
 @keyframes popIn{from{transform:scale(0)}to{transform:scale(1)}}
+@keyframes bulletPulse{0%,100%{transform:scale(1);box-shadow:0 0 6px 2px #ff4444,0 0 12px 4px rgba(255,68,68,.4)}50%{transform:scale(1.3);box-shadow:0 0 10px 4px #ff6666,0 0 20px 8px rgba(255,68,68,.6)}}
+@keyframes bulletTrail{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(0.2)}}
 
 /* ── Shop ── */
 .shop-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;}
@@ -2313,17 +2315,24 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         FB.ref('minigame/bullets/'+id).update({ x:nx, y:ny });
         // Hit detection
         FB.ref('minigame/players').once('value').then(pSnap => {
-          const players = pSnap.val() || {};
-          Object.entries(players).forEach(([uname, pd]) => {
+          const allP = pSnap.val() || {};
+          Object.entries(allP).forEach(([uname, pd]) => {
             if (uname === b.owner || pd.eliminated) return;
             if (pd.x === nx && pd.y === ny) {
-              FB.ref('minigame/players/'+uname).update({eliminated:true});
-              FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
               FB.ref('minigame/bullets/'+id).remove();
-              const alive = Object.entries(players).filter(([u,p])=>!p.eliminated&&u!==uname);
-              if (alive.length <= 1) {
-                const winner = alive[0]?.[0] || b.owner;
-                FB.ref('minigame/state').update({status:'ended',winner,type:'shooter'});
+              FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
+              const newLives = (pd.lives||1) - 1;
+              if (newLives <= 0) {
+                FB.ref('minigame/players/'+uname).update({eliminated:true, lives:0});
+                const alive = Object.entries(allP).filter(([u,p])=>!p.eliminated&&u!==uname);
+                if (alive.length <= 1) {
+                  const winner = alive[0]?.[0] || b.owner;
+                  FB.ref('minigame/state').update({status:'ended',winner,type:'shooter'});
+                }
+              } else {
+                // Respawn at random spawn with reduced lives
+                const sp = SHOOTER_SPAWNS[Math.floor(Math.random()*SHOOTER_SPAWNS.length)];
+                FB.ref('minigame/players/'+uname).update({lives:newLives, x:sp.x, y:sp.y});
               }
             }
           });
@@ -2377,7 +2386,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       const initPos = {x:sx,y:sy};
       mgPosRef.current = initPos;
       setMgPos(initPos);
-      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
+      const lives = type.id === 'shooter' ? 3 : undefined;
+      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(lives!==undefined?{lives}:{})});
       FB.ref('minigame/players/'+me).onDisconnect().remove();
     });
     inMGRef.current = true;
@@ -2398,7 +2408,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const initPos = {x:sx,y:sy};
     mgPosRef.current = initPos;
     setMgPos(initPos);
-    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
+    const isShooter = mgInvite.type === 'shooter';
+    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...(isShooter?{lives:3}:{})});
     FB.ref('minigame/players/'+me).onDisconnect().remove();
     FB.ref('minigame/invites/'+me).remove();
     inMGRef.current = true;
@@ -2630,6 +2641,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               padding:'1px 5px',borderRadius:4,whiteSpace:'nowrap',
               boxShadow:nameShadow,display:'flex',alignItems:'center',gap:3}}>
               <span>{pd.name||uname}{isItPlayer?(mgState?.type==='hide'?' 👁':' 🏷'):''}</span>
+              {mgState?.type==='shooter'&&pd.lives>0&&<span style={{fontSize:7,letterSpacing:1}}>{'❤️'.repeat(pd.lives)}</span>}
               {isOwnerP && <span style={{fontSize:7,fontWeight:800,padding:'0 3px',borderRadius:3,background:'rgba(255,60,60,.25)',color:'#ff4444',border:'1px solid rgba(255,60,60,.4)',letterSpacing:.4,textTransform:'uppercase'}}>Owner</span>}
               {!isOwnerP && isAdminP && <span style={{fontSize:7,fontWeight:800,padding:'0 3px',borderRadius:3,background:'rgba(91,141,238,.25)',color:'#5b8dee',border:'1px solid rgba(91,141,238,.4)',letterSpacing:.4,textTransform:'uppercase'}}>Admin</span>}
             </div>
@@ -2826,9 +2838,24 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none'}}>
                 <div style={{position:'absolute',top:`calc(50% - ${mgPos.y*TILE+TILE/2}px)`,left:`calc(50% - ${mgPos.x*TILE+TILE/2}px)`}}>
                   {fogTiles||shooterTiles||mgTiles}
-                  {mgState.type==='shooter'&&bullets2.map(b=>(
-                    <div key={b.id} style={{position:'absolute',left:b.x*TILE+TILE/2-4,top:b.y*TILE+TILE/2-4,width:8,height:8,borderRadius:'50%',background:'#ff4444',boxShadow:'0 0 6px #ff4444',pointerEvents:'none'}}/>
-                  ))}
+                  {mgState.type==='shooter'&&bullets2.map(b=>{
+                    const cx=b.x*TILE+TILE/2, cy=b.y*TILE+TILE/2;
+                    const tx=cx-(b.dx||0)*TILE*0.6, ty=cy-(b.dy||0)*TILE*0.6;
+                    return (
+                      <React.Fragment key={b.id}>
+                        {/* Trail */}
+                        <div style={{position:'absolute',left:tx-3,top:ty-3,width:6,height:6,borderRadius:'50%',
+                          background:'rgba(255,120,60,.5)',pointerEvents:'none',
+                          animation:'bulletTrail 0.15s linear forwards'}}/>
+                        {/* Bullet */}
+                        <div style={{position:'absolute',left:cx-5,top:cy-5,width:10,height:10,borderRadius:'50%',
+                          background:'radial-gradient(circle at 35% 35%,#ffaa44,#ff2222)',
+                          animation:'bulletPulse 0.3s ease-in-out infinite',
+                          transition:'left 0.12s linear,top 0.12s linear',
+                          pointerEvents:'none'}}/>
+                      </React.Fragment>
+                    );
+                  })}
                   {renderPlayers(mgPlayers, mgPos, true, hnsVisible)}
                 </div>
               </div>
@@ -2847,7 +2874,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                   <AvatarSprite emoji={p.avatar||'👤'} color={p.color||avColor(u)} size={28} isMe={u===me} isIt={mgState.type==='hide'&&mgState.it===u} eliminated={p.eliminated}/>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,color:u===me?'#fff':'#bbb',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||u}</div>
-                    {mgState.type==='shooter'&&<div style={{fontSize:9,color:'#fdcb6e'}}>{p.score||0} kills</div>}
+                    {mgState.type==='shooter'&&<div style={{fontSize:9,color:'#fdcb6e'}}>{p.score||0} kills {'❤️'.repeat(Math.max(0,p.lives||0))}</div>}
                     {p.eliminated&&<div style={{fontSize:9,color:'#e74c3c'}}>eliminated</div>}
                   </div>
                 </div>
