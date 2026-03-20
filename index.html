@@ -1991,7 +1991,7 @@ function ChatArea({ channel, messages, onSend, me, userData, muted, admins, onMu
 /* ═══════════════════════════════════════════════════════════════
    RPG WORLD
 ═══════════════════════════════════════════════════════════════ */
-function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins }) {
+function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItems }) {
   const TILE = 40;
   const isAdmin = (admins||[]).includes(me) || me === OWNER;
   const isMobile = window.innerWidth < 600;
@@ -2528,14 +2528,21 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins }) {
       const isItPlayer = isMinigame && (mgState?.type === 'tag' || mgState?.type === 'hide') && mgState?.it === uname;
       const isSeekerHide = isMinigame && mgState?.type === 'hide' && mgState?.it === uname;
       const pColor = pd.color || avColor(uname);
+      const hasGoldName = userItems && userItems[uname] && userItems[uname].gold_name;
+      const nameColor = hasGoldName ? '#fdcb6e' : '#fff';
+      const nameShadow = hasGoldName ? `0 0 8px #fdcb6e99,0 1px 4px rgba(0,0,0,.5)` : uname===me?`0 0 8px ${pColor}99,0 1px 4px rgba(0,0,0,.5)`:'0 1px 4px rgba(0,0,0,.5)';
+      const isOwnerP = uname === OWNER;
+      const isAdminP = (admins||[]).includes(uname);
       return (
         <div key={uname} style={{position:'absolute',left:pd.x*TILE,top:pd.y*TILE,width:TILE,height:TILE,display:'flex',alignItems:'center',justifyContent:'center',transition:'left .18s,top .18s',zIndex:uname===me?3:2,pointerEvents:'none'}}>
           <div style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-            <div style={{fontSize:9,fontWeight:800,color:'#fff',
+            <div style={{fontSize:9,fontWeight:800,color:nameColor,
               background:uname===me?pColor+'cc':'rgba(0,0,0,.75)',
               padding:'1px 5px',borderRadius:4,whiteSpace:'nowrap',
-              boxShadow:uname===me?`0 0 8px ${pColor}99,0 1px 4px rgba(0,0,0,.5)`:'0 1px 4px rgba(0,0,0,.5)'}}>
-              {pd.name||uname}{isItPlayer?(mgState?.type==='hide'?' 👁':' 🏷'):''}
+              boxShadow:nameShadow,display:'flex',alignItems:'center',gap:3}}>
+              <span>{pd.name||uname}{isItPlayer?(mgState?.type==='hide'?' 👁':' 🏷'):''}</span>
+              {isOwnerP && <span style={{fontSize:7,fontWeight:800,padding:'0 3px',borderRadius:3,background:'rgba(255,60,60,.25)',color:'#ff4444',border:'1px solid rgba(255,60,60,.4)',letterSpacing:.4,textTransform:'uppercase'}}>Owner</span>}
+              {!isOwnerP && isAdminP && <span style={{fontSize:7,fontWeight:800,padding:'0 3px',borderRadius:3,background:'rgba(91,141,238,.25)',color:'#5b8dee',border:'1px solid rgba(91,141,238,.4)',letterSpacing:.4,textTransform:'uppercase'}}>Admin</span>}
             </div>
             <AvatarSprite emoji={pd.avatar||'👤'} color={pColor} size={34} glow={uname===me} isMe={uname===me} isIt={isItPlayer} eliminated={pd.eliminated} />
           </div>
@@ -2703,20 +2710,18 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins }) {
 
         {/* Active mini-game map — camera follows player */}
         {isActive&&(()=>{
-          // Compute BFS fog-of-war for Hide & Seek (walls block vision)
+          // Compute BFS fog-of-war for Hide & Seek (walls block vision, unlimited range)
           let hnsVisible = null;
           if (mgState.type === 'hide') {
             const hMap = getMGMap('hide');
-            const radius = mgState.it === me ? 3 : 2;
             hnsVisible = new Set([mgPos.x+','+mgPos.y]);
-            const q = [{x:mgPos.x,y:mgPos.y,d:0}];
+            const q = [{x:mgPos.x,y:mgPos.y}];
             while (q.length) {
-              const {x,y,d} = q.shift();
-              if (d >= radius) continue;
+              const {x,y} = q.shift();
               [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy]) => {
                 const nx=x+dx, ny=y+dy, k=nx+','+ny;
                 if (!hnsVisible.has(k) && hMap[ny] && hMap[ny][nx] !== 1) {
-                  hnsVisible.add(k); q.push({x:nx,y:ny,d:d+1});
+                  hnsVisible.add(k); q.push({x:nx,y:ny});
                 }
               });
             }
@@ -3444,6 +3449,7 @@ function MainApp({ me, onLogout }) {
           userData={users}
           auraMap={auraMap}
           admins={admins}
+          userItems={userItems}
           onClose={() => setShowRPG(false)}
           onEarnAura={onEarnAura}
         />
