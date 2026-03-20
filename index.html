@@ -611,9 +611,10 @@ const TILE_ICN = { 2:'🌲', 3:'🏠', 1:'🌊' };
 
 /* ── Mini-game system ── */
 const MINIGAME_TYPES = [
-  { id:'corners', name:'4 Corners',             icon:'🟦', desc:'Pick a corner. A random corner is eliminated each round!',     minPlayers:3, aura:25 },
-  { id:'hide',    name:'Hide & Seek Tag',       icon:'👁', desc:'Hide in the dark maze. The seeker hunts you down — survive to win Aura!', minPlayers:2, aura:25 },
-  { id:'shooter', name:'Shooter',               icon:'🔫', desc:'Last player standing wins! Shoot others with your bullets.',   minPlayers:2, aura:35 },
+  { id:'corners',  name:'4 Corners',       icon:'🟦', desc:'Pick a corner. A random corner is eliminated each round!',           minPlayers:3, aura:25 },
+  { id:'hide',     name:'Hide & Seek Tag', icon:'👁', desc:'Hide in the dark maze. The seeker hunts you down — survive to win Aura!', minPlayers:2, aura:25 },
+  { id:'shooter',  name:'Shooter',         icon:'🔫', desc:'Last player standing wins! Shoot others with your bullets.',           minPlayers:2, aura:35 },
+  { id:'pingpong', name:'Ping Pong',       icon:'🏓', desc:'Tournament bracket! Beat opponents 1v1 in Pong. Last one standing wins!', minPlayers:2, aura:30 },
 ];
 
 const MG_MAP_RLGL = (() => {
@@ -682,7 +683,19 @@ const MG_MAP_SHOOTER = (() => {
 const SHOOTER_SPAWNS=[{x:2,y:2},{x:17,y:2},{x:2,y:13},{x:17,y:13},{x:9,y:2},{x:9,y:13},{x:2,y:7},{x:17,y:7}];
 const SHOOTER_SPEED = 18; // tiles per second
 
+// ── Ping Pong constants ──────────────────────────────────────────
+const PP_W=600,PP_H=360,PP_PADDLE_W=12,PP_PADDLE_H=80,PP_BALL_R=7;
+const PP_WIN_SCORE=5,PP_SPEED=290,PP_PAD_X=16,PP_PAD_SPEED=340;
+
 function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS,shooter:MG_MAP_SHOOTER}[t]||MG_MAP_TAG;}
+
+function generatePPRound1(players){
+  const s=[...players].sort(()=>Math.random()-.5);
+  const m=[];
+  for(let i=0;i<s.length;i+=2)
+    m.push(i+1<s.length?{p1:s[i],p2:s[i+1],winner:null,s1:0,s2:0}:{p1:s[i],p2:null,winner:s[i],s1:0,s2:0});
+  return [m];
+}
 
 const MG_TILE_BG={0:'#1c2b1c',1:'#0d0d0d',2:'#142010',3:'#003300',4:'#1f1a00',5:'#2a0505',6:'#05052a',7:'#052508',8:'#1a0525',9:'#1a1a2e'};
 const SHOOTER_FLOOR_BG='#1a1a2e';
@@ -2053,6 +2066,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const [bullets, setBullets] = useState([]);
   const lastShootRef = useRef(0);
   const lastDirRef   = useRef({dx:1,dy:0});
+  // Ping Pong refs
+  const ppMgPlayersRef    = useRef({});
+  const ppLocalPaddleRef  = useRef(PP_H/2 - PP_PADDLE_H/2);
+  const ppPaddleDirRef    = useRef(0);
+  const ppPadWriteRef     = useRef(0);
+  const [ppTick, setPPTick] = useState(0);
 
   const chatBoxRef = useRef(null);
   const u    = userData[me]||{};
@@ -2203,6 +2222,124 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     setMgPos(HNS_SEEKER_SPAWN);
   }, [inMG, mgState ? mgState.it : null, mgState ? mgState.type : null]);
 
+  // ── Ping Pong effects ────────────────────────────────────────
+  useEffect(() => { ppMgPlayersRef.current = mgPlayers; }, [mgPlayers]);
+
+  // Tick for smooth ball animation
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'pingpong' || mgState?.status !== 'active') return;
+    const id = setInterval(() => setPPTick(t => t+1), 16);
+    return () => clearInterval(id);
+  }, [inMG, mgState?.type, mgState?.status]);
+
+  // Keyboard paddle control (W/S or Up/Down)
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'pingpong') return;
+    const keys = {};
+    const update = () => { ppPaddleDirRef.current = (keys['w']||keys['W']||keys['ArrowUp']) ? -1 : (keys['s']||keys['S']||keys['ArrowDown']) ? 1 : 0; };
+    const onDown = e => { keys[e.key]=true; update(); };
+    const onUp   = e => { keys[e.key]=false; update(); };
+    window.addEventListener('keydown',onDown); window.addEventListener('keyup',onUp);
+    return () => { window.removeEventListener('keydown',onDown); window.removeEventListener('keyup',onUp); };
+  }, [inMG, mgState?.type]);
+
+  // Paddle movement RAF loop — only for the current match participants
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'pingpong' || mgState?.status !== 'active' || mgState?.ppMatchStatus !== 'playing') return;
+    const match = mgState?.ppRounds?.[mgState.ppRound]?.[mgState.ppMatch];
+    if (!match || (match.p1 !== me && match.p2 !== me)) return;
+    ppLocalPaddleRef.current = PP_H/2 - PP_PADDLE_H/2;
+    let lastTick = Date.now(), rafId;
+    const loop = () => {
+      const now = Date.now(), dt = Math.min((now-lastTick)/1000, 0.05); lastTick = now;
+      ppLocalPaddleRef.current = Math.max(0, Math.min(PP_H-PP_PADDLE_H, ppLocalPaddleRef.current + ppPaddleDirRef.current*PP_PAD_SPEED*dt));
+      if (now - ppPadWriteRef.current > 33) { ppPadWriteRef.current = now; FB.ref('minigame/players/'+me+'/paddleY').set(ppLocalPaddleRef.current); }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [inMG, mgState?.type, mgState?.status, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, me]);
+
+  // Host: advance from 'waiting' → 'playing' after 2s; skip byes
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'pingpong' || mgState.status !== 'active') return;
+    if (mgState.startedBy !== me || mgState.ppMatchStatus !== 'waiting') return;
+    const rounds = mgState.ppRounds; if (!rounds) return;
+    const match = rounds[mgState.ppRound]?.[mgState.ppMatch];
+    if (!match) return;
+    if (match.p2 === null) {
+      // bye — auto-advance
+      const ri = mgState.ppRound;
+      const nextMi = rounds[ri].findIndex((m,i) => i > mgState.ppMatch && m.p2 !== null && m.winner === null);
+      if (nextMi !== -1) { FB.ref('minigame/state').update({ppMatch:nextMi,ppS1:0,ppS2:0,ppBall:null}); }
+      else { ppAdvanceRound(rounds, ri); }
+      return;
+    }
+    const timer = setTimeout(() => {
+      const ang = (Math.random()*40-20)*Math.PI/180, dir = Math.random()>.5?1:-1;
+      FB.ref('minigame/state').update({ppMatchStatus:'playing',ppBall:{x:PP_W/2,y:PP_H/2,vx:PP_SPEED*dir*Math.cos(ang),vy:PP_SPEED*Math.sin(ang),ts:Date.now()},ppS1:0,ppS2:0});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, mgState?.startedBy, me]);
+
+  // Host: ball physics game loop
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'pingpong' || mgState.status !== 'active') return;
+    if (mgState.ppMatchStatus !== 'playing' || mgState.startedBy !== me || !mgState.ppBall) return;
+    const rounds = mgState.ppRounds;
+    const match = rounds?.[mgState.ppRound]?.[mgState.ppMatch];
+    if (!match?.p1 || !match?.p2) return;
+
+    let {x, y, vx, vy} = mgState.ppBall;
+    let s1 = mgState.ppS1||0, s2 = mgState.ppS2||0;
+    let lastTick = Date.now(), lastWrite = Date.now(), done = false, rafId;
+
+    const resetBall = (dir) => {
+      x=PP_W/2; y=PP_H/2;
+      const ang=(Math.random()*40-20)*Math.PI/180;
+      vx=PP_SPEED*dir*Math.cos(ang); vy=PP_SPEED*Math.sin(ang);
+    };
+
+    const loop = () => {
+      if (done) return;
+      const now=Date.now(), dt=Math.min((now-lastTick)/1000,0.05); lastTick=now;
+      x+=vx*dt; y+=vy*dt;
+      let bounced=false;
+      if(y<=PP_BALL_R&&vy<0){y=PP_BALL_R;vy=-vy;bounced=true;}
+      if(y>=PP_H-PP_BALL_R&&vy>0){y=PP_H-PP_BALL_R;vy=-vy;bounced=true;}
+      const p1Y=ppMgPlayersRef.current[match.p1]?.paddleY??(PP_H/2-PP_PADDLE_H/2);
+      const p2Y=ppMgPlayersRef.current[match.p2]?.paddleY??(PP_H/2-PP_PADDLE_H/2);
+      const lx=PP_PAD_X+PP_PADDLE_W+PP_BALL_R, rx=PP_W-PP_PAD_X-PP_PADDLE_W-PP_BALL_R;
+      // Left paddle
+      if(x<=lx&&vx<0){
+        if(y+PP_BALL_R>=p1Y&&y-PP_BALL_R<=p1Y+PP_PADDLE_H){
+          x=lx; const spd=Math.min(Math.abs(vx)*1.05,PP_SPEED*1.8);
+          vx=spd; vy=((y-(p1Y+PP_PADDLE_H/2))/(PP_PADDLE_H/2))*PP_SPEED*1.2; bounced=true;
+        }
+      }
+      // Right paddle
+      if(x>=rx&&vx>0){
+        if(y+PP_BALL_R>=p2Y&&y-PP_BALL_R<=p2Y+PP_PADDLE_H){
+          x=rx; const spd=Math.min(Math.abs(vx)*1.05,PP_SPEED*1.8);
+          vx=-spd; vy=((y-(p2Y+PP_PADDLE_H/2))/(PP_PADDLE_H/2))*PP_SPEED*1.2; bounced=true;
+        }
+      }
+      // Score
+      if(x<0){
+        s2++; done=true;
+        if(s2>=PP_WIN_SCORE){ ppHandleMatchWin(match.p2,s1,s2,rounds,mgState.ppRound,mgState.ppMatch); }
+        else{ resetBall(1); done=false; FB.ref('minigame/state').update({ppS2:s2,ppBall:{x,y,vx,vy,ts:now}}); }
+      } else if(x>PP_W){
+        s1++; done=true;
+        if(s1>=PP_WIN_SCORE){ ppHandleMatchWin(match.p1,s1,s2,rounds,mgState.ppRound,mgState.ppMatch); }
+        else{ resetBall(-1); done=false; FB.ref('minigame/state').update({ppS1:s1,ppBall:{x,y,vx,vy,ts:now}}); }
+      } else if(bounced||now-lastWrite>33){ lastWrite=now; FB.ref('minigame/state/ppBall').set({x,y,vx,vy,ts:now}); }
+      if(!done) rafId=requestAnimationFrame(loop);
+    };
+    rafId=requestAnimationFrame(loop);
+    return () => { done=true; cancelAnimationFrame(rafId); };
+  }, [inMG, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, mgState?.startedBy, me, mgState?.ppBall?.ts]);
+
   // Sync refs — move() reads these instead of closure state so it never re-creates
   useEffect(() => { inMGRef.current = inMG; }, [inMG]);
   useEffect(() => { mgStateRef.current = mgState; }, [mgState]);
@@ -2210,6 +2347,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   // Movement handler — reads refs, never stale, never recreated on state changes
   const move = useCallback((dx, dy) => {
     if (inMGRef.current && mgStateRef.current) {
+      if (mgStateRef.current.type === 'pingpong') return;
       const curMGState = mgStateRef.current;
       const map = getMGMap(curMGState.type);
       const p = mgPosRef.current;
@@ -2379,16 +2517,21 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     invites['minigame/state'] = { type:type.id, status:'lobby', startedBy:me, ts:Date.now(), light:'green', it:null, corner:null };
     invites['minigame/players'] = null; // clear old players
     FB.ref().update(invites).then(() => {
-      const map = getMGMap(type.id);
-      let sx, sy;
-      if (type.id === 'shooter') {
+      let sx=0, sy=0;
+      if (type.id === 'pingpong') {
+        ppLocalPaddleRef.current = PP_H/2 - PP_PADDLE_H/2;
+      } else if (type.id === 'shooter') {
         const sp = SHOOTER_SPAWNS[Math.floor(Math.random()*SHOOTER_SPAWNS.length)];
         sx = sp.x; sy = sp.y;
-      } else { sx = Math.floor((map[0].length-2)/2)+1; sy = map.length-2; }
+      } else {
+        const map = getMGMap(type.id);
+        sx = Math.floor((map[0].length-2)/2)+1; sy = map.length-2;
+      }
       const initPos = {x:sx,y:sy};
       mgPosRef.current = initPos;
       setMgPos(initPos);
-      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
+      const extra = type.id==='pingpong' ? {paddleY:PP_H/2-PP_PADDLE_H/2} : {};
+      FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...extra});
       FB.ref('minigame/players/'+me).onDisconnect().remove();
     });
     inMGRef.current = true;
@@ -2397,19 +2540,22 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
 
   const joinMinigame = useCallback(() => {
     if (!mgInvite || !mgState) return;
-    const map = getMGMap(mgInvite.type);
-    let sx, sy;
-    if (mgInvite.type === 'shooter') {
+    let sx=0, sy=0;
+    if (mgInvite.type === 'pingpong') {
+      ppLocalPaddleRef.current = PP_H/2 - PP_PADDLE_H/2;
+    } else if (mgInvite.type === 'shooter') {
       const sp = SHOOTER_SPAWNS[Math.floor(Math.random()*SHOOTER_SPAWNS.length)];
       sx = sp.x; sy = sp.y;
     } else {
+      const map = getMGMap(mgInvite.type);
       sx = Math.min(Math.max(1, Math.floor((map[0].length-2)/2) + Math.floor(Math.random()*5)-2), map[0].length-2);
       sy = map.length-2;
     }
     const initPos = {x:sx,y:sy};
     mgPosRef.current = initPos;
     setMgPos(initPos);
-    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0});
+    const extra2 = mgInvite.type==='pingpong' ? {paddleY:PP_H/2-PP_PADDLE_H/2} : {};
+    FB.ref('minigame/players/'+me).set({x:sx,y:sy,avatar:avatar.emoji,name:disp,color:col,eliminated:false,score:0,...extra2});
     FB.ref('minigame/players/'+me).onDisconnect().remove();
     FB.ref('minigame/invites/'+me).remove();
     inMGRef.current = true;
@@ -2421,9 +2567,20 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const updates = {'minigame/state/status':'active'};
     if (mgState?.type === 'hide' && pList.length > 0)
       updates['minigame/state/it'] = pList[Math.floor(Math.random()*pList.length)];
-      updates['minigame/state/itSince'] = Date.now();
+    updates['minigame/state/itSince'] = Date.now();
+    if (mgState?.type === 'pingpong') {
+      const allP = [...new Set([...pList, me])];
+      const rounds = generatePPRound1(allP);
+      updates['minigame/state/ppRounds'] = rounds;
+      updates['minigame/state/ppRound'] = 0;
+      updates['minigame/state/ppMatch'] = 0;
+      updates['minigame/state/ppMatchStatus'] = 'waiting';
+      updates['minigame/state/ppBall'] = null;
+      updates['minigame/state/ppS1'] = 0;
+      updates['minigame/state/ppS2'] = 0;
+    }
     FB.ref().update(updates);
-  }, [mgPlayers, mgState]);
+  }, [mgPlayers, mgState, me]);
 
   const pickCorner = useCallback(() => {
     const corners = ['A','B','C','D'];
@@ -2457,6 +2614,28 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       });
     });
   }, []);
+
+  const ppAdvanceRound = useCallback((rounds, roundIdx) => {
+    const winners = rounds[roundIdx].map(m => m.winner);
+    if (winners.length <= 1) {
+      FB.ref('minigame/state').update({ppRounds:rounds,ppMatchStatus:'done',status:'ended',winner:winners[0]||null,type:'pingpong'});
+      return;
+    }
+    const next=[];
+    for(let i=0;i<winners.length;i+=2)
+      next.push(i+1<winners.length?{p1:winners[i],p2:winners[i+1],winner:null,s1:0,s2:0}:{p1:winners[i],p2:null,winner:winners[i],s1:0,s2:0});
+    rounds.push(next);
+    FB.ref('minigame/state').update({ppRounds:rounds,ppRound:roundIdx+1,ppMatch:0,ppMatchStatus:'waiting',ppBall:null,ppS1:0,ppS2:0});
+  }, []);
+
+  const ppHandleMatchWin = useCallback((winner, s1, s2, rounds, roundIdx, matchIdx) => {
+    const nr = JSON.parse(JSON.stringify(rounds));
+    nr[roundIdx][matchIdx].winner=winner; nr[roundIdx][matchIdx].s1=s1; nr[roundIdx][matchIdx].s2=s2;
+    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    if (allDone) { ppAdvanceRound(nr, roundIdx); return; }
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    FB.ref('minigame/state').update({ppRounds:nr,ppMatch:nextMi!==-1?nextMi:matchIdx+1,ppMatchStatus:'waiting',ppBall:null,ppS1:0,ppS2:0});
+  }, [ppAdvanceRound]);
 
   const endMinigame = useCallback(() => {
     const alive = Object.entries(mgPlayers).filter(([_,p])=>!p.eliminated);
@@ -2613,6 +2792,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
         {isTouch && Joystick()}
+        {isTouch&&inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&(
+          <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none'}}>🔫</button>
+        )}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
           <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
@@ -2760,8 +2942,18 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             </div>
           )}
 
+          {/* Ping Pong match indicator */}
+          {mgState.type==='pingpong'&&isActive&&(()=>{
+            const match=mgState.ppRounds?.[mgState.ppRound]?.[mgState.ppMatch];
+            if(!match||!match.p2) return null;
+            return <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(79,195,247,.12)',border:'1px solid rgba(79,195,247,.3)',fontSize:12,fontWeight:800,color:'#4fc3f7'}}>
+              🏓 {mgPlayers[match.p1]?.name||match.p1} vs {mgPlayers[match.p2]?.name||match.p2}
+              {mgState.ppMatchStatus==='playing'&&<span style={{marginLeft:8,color:'#fff'}}>{mgState.ppS1||0} — {mgState.ppS2||0}</span>}
+            </div>;
+          })()}
+
           {isLobby&&<span style={{marginLeft:8,fontSize:11,color:'#fdcb6e',fontWeight:700}}>⏳ Waiting for players…</span>}
-          {isActive&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
+          {isActive&&mgState.type!=='pingpong'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
 
           <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
             <span style={{fontSize:11,color:'#333'}}>👥 {Object.keys(mgPlayers).length}</span>
@@ -2793,8 +2985,107 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           </div>
         )}
 
-        {/* Active mini-game map — camera follows player */}
-        {isActive&&(()=>{
+        {/* Ping Pong arena */}
+        {isActive&&mgState.type==='pingpong'&&(()=>{
+          const rounds = mgState.ppRounds||[];
+          const match = rounds[mgState.ppRound]?.[mgState.ppMatch];
+          const p1 = match?.p1, p2 = match?.p2;
+          const amP1 = p1===me, amP2 = p2===me;
+          const playing = mgState.ppMatchStatus==='playing';
+          void ppTick; // causes re-render for smooth ball + paddle animation
+          const p1PadY = amP1 ? ppLocalPaddleRef.current : (mgPlayers[p1]?.paddleY??(PP_H/2-PP_PADDLE_H/2));
+          const p2PadY = amP2 ? ppLocalPaddleRef.current : (mgPlayers[p2]?.paddleY??(PP_H/2-PP_PADDLE_H/2));
+          let ballX=PP_W/2, ballY=PP_H/2;
+          if(playing&&mgState.ppBall){
+            const {x,y,vx,vy,ts}=mgState.ppBall;
+            const el=(Date.now()-ts)/1000;
+            ballX=Math.max(PP_BALL_R,Math.min(PP_W-PP_BALL_R,x+vx*el));
+            ballY=Math.max(PP_BALL_R,Math.min(PP_H-PP_BALL_R,y+vy*el));
+          }
+          // Bracket display helper
+          const BracketView = () => (
+            <div style={{padding:'12px 10px',overflowY:'auto',flex:1}}>
+              {rounds.map((round,ri)=>(
+                <div key={ri} style={{marginBottom:12}}>
+                  <div style={{fontSize:9,fontWeight:700,color:'#444',textTransform:'uppercase',letterSpacing:.8,marginBottom:6}}>
+                    {ri===rounds.length-1&&round.length===1?'Final':ri===0?'Round 1':`Round ${ri+1}`}
+                  </div>
+                  {round.map((m,mi)=>(
+                    <div key={mi} style={{marginBottom:5,padding:'5px 8px',borderRadius:6,
+                      background:ri===mgState.ppRound&&mi===mgState.ppMatch?'rgba(79,195,247,.08)':'rgba(255,255,255,.02)',
+                      border:`1px solid ${ri===mgState.ppRound&&mi===mgState.ppMatch?'rgba(79,195,247,.3)':'rgba(255,255,255,.05)'}`,
+                      opacity:m.p2===null?0.5:1}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,fontSize:10}}>
+                        <span style={{color:m.winner===m.p1?'#fdcb6e':m.p1===me?'#fff':'#aaa',fontWeight:m.winner===m.p1?800:400}}>{mgPlayers[m.p1]?.name||m.p1||'?'}</span>
+                        <span style={{color:'#333',fontSize:8}}>{m.winner?`${m.s1}-${m.s2}`:'vs'}</span>
+                        <span style={{color:m.winner===m.p2?'#fdcb6e':m.p2===me?'#fff':'#aaa',fontWeight:m.winner===m.p2?800:400}}>{m.p2?(mgPlayers[m.p2]?.name||m.p2):'BYE'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+          return (
+            <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+              {/* Arena */}
+              <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#03030a',overflow:'hidden',gap:8}}>
+                <div style={{position:'relative',width:PP_W,height:PP_H,maxWidth:'100%',background:'#000',border:'2px solid rgba(255,255,255,.15)',borderRadius:6,overflow:'hidden',flexShrink:0}}>
+                  {/* Center line */}
+                  <div style={{position:'absolute',left:'50%',top:0,width:1,height:'100%',background:'rgba(255,255,255,.08)'}}/>
+                  <div style={{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',width:70,height:70,borderRadius:'50%',border:'1px solid rgba(255,255,255,.06)',pointerEvents:'none'}}/>
+                  {playing?(<>
+                    {/* P1 paddle */}
+                    <div style={{position:'absolute',left:PP_PAD_X,top:p1PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#81d4fa,#0288d1)',borderRadius:5,boxShadow:'0 0 14px rgba(79,195,247,.7)'}}/>
+                    {/* P2 paddle */}
+                    <div style={{position:'absolute',right:PP_PAD_X,top:p2PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#ef9a9a,#c62828)',borderRadius:5,boxShadow:'0 0 14px rgba(239,154,154,.7)'}}/>
+                    {/* Ball */}
+                    <div style={{position:'absolute',left:ballX-PP_BALL_R,top:ballY-PP_BALL_R,width:PP_BALL_R*2,height:PP_BALL_R*2,borderRadius:'50%',background:'radial-gradient(circle at 35% 35%,#fff 10%,#fdcb6e 50%,#e17055)',boxShadow:'0 0 14px 4px rgba(253,203,110,.8)',pointerEvents:'none'}}/>
+                    {/* Scores */}
+                    <div style={{position:'absolute',top:10,left:0,right:0,display:'flex',justifyContent:'space-around',pointerEvents:'none'}}>
+                      <span style={{fontSize:36,fontWeight:900,color:'rgba(129,212,250,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(79,195,247,.5)'}}>{mgState.ppS1||0}</span>
+                      <span style={{fontSize:36,fontWeight:900,color:'rgba(239,154,154,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(239,154,154,.5)'}}>{mgState.ppS2||0}</span>
+                    </div>
+                    {/* Names */}
+                    <div style={{position:'absolute',bottom:8,left:0,right:0,display:'flex',justifyContent:'space-around',pointerEvents:'none'}}>
+                      <span style={{fontSize:10,color:'#4fc3f7',fontWeight:700,background:'rgba(0,0,0,.6)',padding:'2px 8px',borderRadius:8}}>{mgPlayers[p1]?.name||p1}{amP1?' (you)':''}</span>
+                      <span style={{fontSize:10,color:'#ef9a9a',fontWeight:700,background:'rgba(0,0,0,.6)',padding:'2px 8px',borderRadius:8}}>{mgPlayers[p2]?.name||p2}{amP2?' (you)':''}</span>
+                    </div>
+                  </>):(
+                    <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,color:'#fff'}}>
+                      <div style={{fontSize:36}}>🏓</div>
+                      {match&&match.p2?(
+                        <>
+                          <div style={{fontSize:16,fontWeight:800,color:'#e0e4ff'}}>{mgPlayers[match.p1]?.name||match.p1} vs {mgPlayers[match.p2]?.name||match.p2}</div>
+                          <div style={{fontSize:12,color:'#555'}}>Match starting soon…</div>
+                        </>
+                      ):<div style={{fontSize:14,color:'#888'}}>Loading bracket…</div>}
+                    </div>
+                  )}
+                </div>
+                {/* Touch controls */}
+                {isTouch&&(amP1||amP2)&&playing&&(
+                  <div style={{display:'flex',gap:16}}>
+                    <div onTouchStart={e=>{e.preventDefault();ppPaddleDirRef.current=-1;}} onTouchEnd={()=>ppPaddleDirRef.current=0}
+                      style={{width:80,height:56,background:'rgba(255,255,255,.06)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,userSelect:'none',touchAction:'none',border:'1px solid rgba(255,255,255,.1)'}}>▲</div>
+                    <div onTouchStart={e=>{e.preventDefault();ppPaddleDirRef.current=1;}} onTouchEnd={()=>ppPaddleDirRef.current=0}
+                      style={{width:80,height:56,background:'rgba(255,255,255,.06)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,userSelect:'none',touchAction:'none',border:'1px solid rgba(255,255,255,.1)'}}>▼</div>
+                  </div>
+                )}
+                {(amP1||amP2)&&playing&&!isTouch&&<div style={{fontSize:11,color:'#333'}}>W/S or ↑↓ to move paddle</div>}
+                {!amP1&&!amP2&&playing&&<div style={{fontSize:12,color:'#555',fontStyle:'italic'}}>You're watching this match</div>}
+              </div>
+              {/* Bracket sidebar */}
+              {(!isMobile||showPanel)&&<div style={{width:isMobile?'70vw':180,position:isMobile?'absolute':undefined,right:isMobile?0:undefined,top:isMobile?0:undefined,bottom:isMobile?0:undefined,zIndex:isMobile?20:undefined,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',flexShrink:0}}>
+                <div style={{padding:'7px 10px',fontSize:9,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)'}}>Bracket</div>
+                <BracketView/>
+              </div>}
+            </div>
+          );
+        })()}
+
+        {/* Active mini-game map — camera follows player (not ping pong) */}
+        {isActive&&mgState.type!=='pingpong'&&(()=>{
           // Line-of-sight for Hide & Seek (Bresenham ray — walls block vision)
           let hnsVisible = null;
           if (mgState.type === 'hide') {
