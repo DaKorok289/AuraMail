@@ -608,10 +608,8 @@ const TILE_ICN = { 2:'🌲', 3:'🏠', 1:'🌊' };
 
 /* ── Mini-game system ── */
 const MINIGAME_TYPES = [
-  { id:'rlgl',    name:'Red Light Green Light', icon:'🚦', desc:'Freeze on red — move on green. First to finish wins!',         minPlayers:2, aura:30 },
   { id:'corners', name:'4 Corners',             icon:'🟦', desc:'Pick a corner. A random corner is eliminated each round!',     minPlayers:3, aura:25 },
-  { id:'tag',     name:'Tag',                   icon:'🏷', desc:'The tagger chases everyone. Most tags when time runs out wins!', minPlayers:2, aura:20 },
-  { id:'hide',    name:'Hide & Seek',           icon:'👁', desc:'Hide in the dark maze. Seeker sees 3 tiles, hiders only 2. Most tags wins!', minPlayers:2, aura:25 },
+  { id:'hide',    name:'Hide & Seek Tag',       icon:'👁', desc:'Hide in the dark maze. The seeker hunts you down — survive to win Aura!', minPlayers:2, aura:25 },
 ];
 
 const MG_MAP_RLGL = (() => {
@@ -667,7 +665,7 @@ const MG_MAP_HNS = [
 ];
 const HNS_SEEKER_SPAWN = {x:10, y:7};
 
-function getMGMap(t){return{rlgl:MG_MAP_RLGL,corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS}[t]||MG_MAP_TAG;}
+function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS}[t]||MG_MAP_TAG;}
 
 const MG_TILE_BG={0:'#1c2b1c',1:'#0d0d0d',2:'#142010',3:'#003300',4:'#1f1a00',5:'#2a0505',6:'#05052a',7:'#052508',8:'#1a0525'};
 const MG_TILE_ICN={2:'🌲',3:'🏁',4:'🟡'};
@@ -2089,11 +2087,18 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => ref.off('value');
   }, []);
 
-  // Reward winner
+  // Reward winner (or all hiders for Hide & Seek)
   useEffect(() => {
-    if (!mgResult || mgResult.winner !== me || mgResult.rewarded) return;
+    if (!mgResult || mgResult.rewarded) return;
     const type = MINIGAME_TYPES.find(t => t.id === mgResult.type);
-    if (type) onEarnAura(type.aura, type.name + ' Victory');
+    if (!type) return;
+    if (mgResult.type === 'hide') {
+      // Everyone except the final seeker gets aura
+      if (me !== mgResult.it) onEarnAura(type.aura, 'Hide & Seek Survivor');
+    } else {
+      if (mgResult.winner !== me) return;
+      onEarnAura(type.aura, type.name + ' Victory');
+    }
     FB.ref('minigame/state/rewarded').set(true);
   }, [mgResult]);
 
@@ -2131,54 +2136,39 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => clearInterval(mgTimerRef.current);
   }, [inMG, mgState?.status]);
 
-  // RLGL: auto-toggle light (admin only)
+  // 4 Corners: auto-pick corner 10s after each round starts (admin executes)
   useEffect(() => {
-    if (!inMG || !mgState || mgState.type !== 'rlgl' || mgState.status !== 'active' || !isAdmin) return;
-    // Green stays 2-4s, red stays 1-2.5s — red is more frequent
-    const isGreen = mgState.light === 'green';
-    const delay = isGreen ? (2 + Math.random() * 2) * 1000 : (1 + Math.random() * 1.5) * 1000;
-    const timer = setTimeout(() => {
-      FB.ref('minigame/state/light').set(isGreen ? 'red' : 'green');
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [inMG, mgState?.light, mgState?.status, isAdmin]);
-
-  // 4 Corners: auto-pick corner after 10s countdown (admin executes)
-  useEffect(() => {
-    if (!inMG || !mgState || mgState.type !== 'corners' || mgState.status !== 'active' || !mgState.cornersPickAt || !isAdmin) return;
-    const delay = mgState.cornersPickAt - Date.now();
-    if (delay <= 0) { pickCorner(); return; }
-    const timer = setTimeout(() => pickCorner(), delay);
-    return () => clearTimeout(timer);
-  }, [inMG, mgState ? mgState.cornersPickAt : null, isAdmin]);
+    if (!inMG || !mgState || mgState.type !== 'corners' || mgState.status !== 'active' || !isAdmin) return;
+    if (mgState.cornersPickAt) {
+      const delay = mgState.cornersPickAt - Date.now();
+      if (delay <= 0) { pickCorner(); return; }
+      const timer = setTimeout(() => pickCorner(), delay);
+      return () => clearTimeout(timer);
+    } else {
+      // Start the 10s countdown automatically
+      FB.ref('minigame/state/cornersPickAt').set(Date.now() + 10000);
+    }
+  }, [inMG, mgState ? mgState.cornersPickAt : null, mgState ? mgState.status : null, isAdmin]);
 
   // Tag / Hide & Seek: seeker proximity tagging
   useEffect(() => {
     if (!inMG || !mgState || mgState.status !== 'active' || mgState.it !== me) return;
-    if (mgState.type !== 'tag' && mgState.type !== 'hide') return;
-    // Tag has a 3-second cooldown to prevent instant re-tags
-    if (mgState.type === 'tag' && Date.now() - lastTagRef.current < 3000) return;
+    if (mgState.type !== 'hide') return;
     Object.entries(mgPlayers).forEach(([uname, pd]) => {
       if (uname === me || pd.eliminated) return;
       if (Math.abs(pd.x - mgPos.x) + Math.abs(pd.y - mgPos.y) <= 1) {
         lastTagRef.current = Date.now();
         FB.ref('minigame/state/it').set(uname);
         FB.ref('minigame/players/' + me + '/score').transaction(cur => (cur||0) + 1);
-        if (mgState.type === 'hide') {
-          FB.ref('minigame/players/' + uname).update({ x: HNS_SEEKER_SPAWN.x, y: HNS_SEEKER_SPAWN.y, ts: Date.now() });
-          FB.ref('rpg/chat').push({ author:'__system__', content:`👁 ${me} found ${uname}! They're now the seeker!`, ts:Date.now() });
-        } else {
-          FB.ref('rpg/chat').push({ author:'__system__', content:`🏷 ${me} tagged ${uname}!`, ts:Date.now() });
-        }
+        // New seeker is sent to spawn; tagger stays where they are
+        FB.ref('minigame/players/' + uname).update({ x: HNS_SEEKER_SPAWN.x, y: HNS_SEEKER_SPAWN.y, ts: Date.now() });
+        FB.ref('rpg/chat').push({ author:'__system__', content:`👁 ${me} found ${uname}! They're now the seeker!`, ts:Date.now() });
       }
     });
   }, [mgPos, inMG, mgState, mgPlayers]);
 
   // Reset tag cooldown when you freshly become "it"
   useEffect(() => {
-    if (inMG && mgState && mgState.type === 'tag' && mgState.it === me) {
-      lastTagRef.current = Date.now(); // start cooldown immediately on becoming "it"
-    }
   }, [inMG, mgState ? mgState.it : null]);
 
   // Hide & Seek: teleport to seeker spawn when you become the seeker
@@ -2203,16 +2193,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       const tile = map[ny] ? map[ny][nx] : 1;
       if (tile === 1 || tile === 2) return;
       let newPos;
-      if (curMGState.type === 'rlgl' && curMGState.light === 'red' && curMGState.status === 'active') {
-        const startX = Math.floor((map[0].length - 2) / 2) + 1;
-        newPos = { x: startX, y: RLGL_START_Y };
-        FB.ref('minigame/players/' + me).update({ x: startX, y: RLGL_START_Y, ts: Date.now() });
-      } else {
-        newPos = { x: nx, y: ny };
-        if ((curMGState.type === 'race' || curMGState.type === 'rlgl') && ny === 1 && curMGState.status === 'active') {
-          FB.ref('minigame/state').update({ status:'ended', winner:me, type:curMGState.type });
-        }
-      }
+      newPos = { x: nx, y: ny };
       mgPosRef.current = newPos;
       setMgPos(newPos);
     } else {
@@ -2316,7 +2297,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const startGame = useCallback(() => {
     const pList = Object.keys(mgPlayers);
     const updates = {'minigame/state/status':'active'};
-    if ((mgState?.type === 'tag' || mgState?.type === 'hide') && pList.length > 0)
+    if (mgState?.type === 'hide' && pList.length > 0)
       updates['minigame/state/it'] = pList[Math.floor(Math.random()*pList.length)];
     FB.ref().update(updates);
   }, [mgPlayers, mgState]);
@@ -2346,13 +2327,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const endMinigame = useCallback(() => {
     const alive = Object.entries(mgPlayers).filter(([_,p])=>!p.eliminated);
     let winner = null;
-    if (mgState?.type === 'tag') {
-      const top = Object.entries(mgPlayers).sort((a,b)=>(b[1].score||0)-(a[1].score||0))[0];
-      winner = top?.[0] || null;
-    } else if (alive.length >= 1) {
+    if (alive.length >= 1) {
       winner = alive[0][0];
     }
-    FB.ref('minigame/state').update({status:'ended',winner,type:mgState?.type});
+    const update = {status:'ended',winner,type:mgState?.type};
+    if (mgState?.type === 'hide') update.it = mgState.it || null;
+    FB.ref('minigame/state').update(update);
   }, [mgPlayers, mgState]);
 
   const leaveMG = useCallback(() => {
@@ -2525,7 +2505,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       if (visSet && uname !== me && !visSet.has(pd.x+','+pd.y)) return false;
       return true;
     }).map(([uname, pd]) => {
-      const isItPlayer = isMinigame && (mgState?.type === 'tag' || mgState?.type === 'hide') && mgState?.it === uname;
+      const isItPlayer = isMinigame && mgState?.type === 'hide' && mgState?.it === uname;
       const isSeekerHide = isMinigame && mgState?.type === 'hide' && mgState?.it === uname;
       const pColor = pd.color || avColor(uname);
       const hasGoldName = userItems && userItems[uname] && userItems[uname].gold_name;
@@ -2592,26 +2572,19 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
 
   // ── Mini-game result screen ───────────────────────────────────
   if (inMG && mgResult) {
-    const won = mgResult.winner === me;
+    const isHide = mgResult.type === 'hide';
+    const survived = isHide ? me !== mgResult.it : mgResult.winner === me;
+    const won = survived;
     const type = MINIGAME_TYPES.find(t=>t.id===mgResult.type);
     const winnerData = mgPlayers[mgResult.winner]||{};
+    const seekerData = isHide ? (mgPlayers[mgResult.it]||{}) : null;
     return (
       <div style={{position:'fixed',inset:0,background:'#0a0a14',zIndex:900,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:20,fontFamily:'inherit'}}>
         <div style={{fontSize:60,filter:`drop-shadow(0 0 30px ${won?'gold':'#555'})`}}>{won?'🏆':'😔'}</div>
-        <div style={{fontSize:28,fontWeight:900,color:won?'#fdcb6e':'#888'}}>{won?'You Won!':'Game Over'}</div>
-        {mgResult.winner && <div style={{fontSize:15,color:'#888'}}>Winner: <span style={{color:'#fff',fontWeight:700}}>{winnerData.name||mgResult.winner} {winnerData.avatar||''}</span></div>}
+        <div style={{fontSize:28,fontWeight:900,color:won?'#fdcb6e':'#888'}}>{isHide?(won?'You Survived!':'You Were the Seeker!'):(won?'You Won!':'Game Over')}</div>
+        {isHide && seekerData && <div style={{fontSize:15,color:'#888'}}>Final seeker: <span style={{color:'#fff',fontWeight:700}}>{seekerData.name||mgResult.it} {seekerData.avatar||''}</span></div>}
+        {!isHide && mgResult.winner && <div style={{fontSize:15,color:'#888'}}>Winner: <span style={{color:'#fff',fontWeight:700}}>{winnerData.name||mgResult.winner} {winnerData.avatar||''}</span></div>}
         {won&&type&&<div style={{padding:'8px 20px',borderRadius:10,background:'rgba(253,203,110,.1)',border:'1px solid rgba(253,203,110,.2)',color:'#fdcb6e',fontWeight:700,fontSize:14}}>+{type.aura} Aura earned!</div>}
-        {mgState?.type==='tag'&&(
-          <div style={{display:'flex',gap:12,flexWrap:'wrap',justifyContent:'center',maxWidth:400}}>
-            {Object.entries(mgPlayers).sort((a,b)=>(b[1].score||0)-(a[1].score||0)).map(([u,p])=>(
-              <div key={u} style={{textAlign:'center',padding:'8px 12px',borderRadius:10,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.06)'}}>
-                <div style={{fontSize:24}}>{p.avatar}</div>
-                <div style={{fontSize:11,color:'#aaa'}}>{p.name||u}</div>
-                <div style={{fontSize:11,color:'#fdcb6e'}}>{p.score||0} tags</div>
-              </div>
-            ))}
-          </div>
-        )}
         <div style={{display:'flex',gap:10,marginTop:8}}>
           <button onClick={leaveMG} style={{padding:'10px 28px',borderRadius:10,border:'none',background:'linear-gradient(135deg,#fdcb6e,#e17055)',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:'inherit'}}>Back to World</button>
         </div>
@@ -2638,25 +2611,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           <span style={{fontSize:20}}>{mgType.icon}</span>
           <span style={{fontWeight:900,fontSize:14,color:'#e0e4ff'}}>{mgType.name}</span>
 
-          {/* RLGL light indicator */}
-          {mgState.type==='rlgl'&&isActive&&(
-            <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(0,0,0,.4)',border:`1px solid ${lightColor}44`}}>
-              <div style={{width:12,height:12,borderRadius:'50%',background:lightColor,boxShadow:`0 0 10px ${lightColor}`}}/>
-              <span style={{fontSize:12,fontWeight:800,color:lightColor}}>{mgState.light?.toUpperCase()} LIGHT</span>
-            </div>
-          )}
-
           {/* 4C corner indicator */}
           {mgState.type==='corners'&&isActive&&mgState.corner&&(
             <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(231,76,60,.15)',border:'1px solid rgba(231,76,60,.3)',fontSize:12,fontWeight:800,color:'#e74c3c'}}>
               ❌ Corner {mgState.corner} eliminated!
-            </div>
-          )}
-
-          {/* Tag "it" indicator */}
-          {mgState.type==='tag'&&isActive&&(
-            <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:isIt?'rgba(231,76,60,.2)':'rgba(0,0,0,.3)',border:`1px solid ${isIt?'rgba(231,76,60,.4)':'rgba(255,255,255,.07)'}`,fontSize:12,fontWeight:800,color:isIt?'#e74c3c':'#666'}}>
-              {isIt?'🏷 YOU ARE IT!':'🏃 Run from '+(mgPlayers[mgState.it]?.name||mgState.it||'?')}
             </div>
           )}
 
@@ -2680,7 +2638,6 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
             <span style={{fontSize:11,color:'#333'}}>👥 {Object.keys(mgPlayers).length}</span>
             {isAdmin&&isLobby&&<button onClick={startGame} style={{padding:'5px 12px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#43b581,#2ecc71)',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>▶ Start</button>}
-            {isAdmin&&isActive&&mgState.type==='corners'&&!mgState.cornersPickAt&&<button onClick={()=>FB.ref('minigame/state/cornersPickAt').set(Date.now()+10000)} style={{padding:'5px 12px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#e74c3c,#c0392b)',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>🎲 Pick Corner</button>}
             {isAdmin&&isActive&&<button onClick={endMinigame} style={{padding:'5px 12px',borderRadius:7,border:'1px solid rgba(255,255,255,.08)',background:'transparent',color:'#555',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>End</button>}
             <button onClick={leaveMG} style={{padding:'5px 12px',borderRadius:7,border:'none',background:'rgba(255,80,80,.1)',color:'#ff7070',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>✕ Leave</button>
           </div>
@@ -2710,21 +2667,28 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
 
         {/* Active mini-game map — camera follows player */}
         {isActive&&(()=>{
-          // Compute BFS fog-of-war for Hide & Seek (walls block vision, unlimited range)
+          // Line-of-sight for Hide & Seek (Bresenham ray — walls block vision)
           let hnsVisible = null;
           if (mgState.type === 'hide') {
             const hMap = getMGMap('hide');
-            hnsVisible = new Set([mgPos.x+','+mgPos.y]);
-            const q = [{x:mgPos.x,y:mgPos.y}];
-            while (q.length) {
-              const {x,y} = q.shift();
-              [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy]) => {
-                const nx=x+dx, ny=y+dy, k=nx+','+ny;
-                if (!hnsVisible.has(k) && hMap[ny] && hMap[ny][nx] !== 1) {
-                  hnsVisible.add(k); q.push({x:nx,y:ny});
-                }
-              });
-            }
+            const hasLoS = (x1, y1) => {
+              let x0=mgPos.x, y0=mgPos.y;
+              const dx=Math.abs(x1-x0), dy=Math.abs(y1-y0);
+              const sx=x0<x1?1:-1, sy=y0<y1?1:-1;
+              let err=dx-dy, cx=x0, cy=y0;
+              while(cx!==x1||cy!==y1){
+                const e2=2*err;
+                if(e2>-dy){err-=dy;cx+=sx;}
+                if(e2<dx){err+=dx;cy+=sy;}
+                if(cx===x1&&cy===y1) break;
+                if(hMap[cy]&&hMap[cy][cx]===1) return false;
+              }
+              return true;
+            };
+            hnsVisible = new Set();
+            hMap.forEach((row,ry)=>row.forEach((tile,rx)=>{
+              if(tile!==1&&hasLoS(rx,ry)) hnsVisible.add(rx+','+ry);
+            }));
           }
           const fogTiles = hnsVisible ? getMGMap('hide').map((row,ry) => (
             <div key={ry} style={{display:'flex'}}>
@@ -2756,10 +2720,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               </div>
               {Object.entries(mgPlayers).sort((a,b)=>(b[1].score||0)-(a[1].score||0)).map(([u,p])=>(
                 <div key={u} style={{display:'flex',alignItems:'center',gap:7,padding:'7px 10px',borderBottom:'1px solid rgba(255,255,255,.04)',opacity:p.eliminated?0.45:1}}>
-                  <AvatarSprite emoji={p.avatar||'👤'} color={p.color||avColor(u)} size={28} isMe={u===me} isIt={mgState.type==='tag'&&mgState.it===u} eliminated={p.eliminated}/>
+                  <AvatarSprite emoji={p.avatar||'👤'} color={p.color||avColor(u)} size={28} isMe={u===me} isIt={mgState.type==='hide'&&mgState.it===u} eliminated={p.eliminated}/>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,color:u===me?'#fff':'#bbb',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||u}</div>
-                    {mgState.type==='tag'&&<div style={{fontSize:9,color:'#fdcb6e'}}>{p.score||0} tags</div>}
                     {p.eliminated&&<div style={{fontSize:9,color:'#e74c3c'}}>eliminated</div>}
                   </div>
                 </div>
