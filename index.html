@@ -615,6 +615,7 @@ const MINIGAME_TYPES = [
   { id:'hide',     name:'Hide & Seek Tag', icon:'👁', desc:'Hide in the dark maze. The seeker hunts you down — survive to win Aura!', minPlayers:2, aura:25 },
   { id:'shooter',  name:'Shooter',         icon:'🔫', desc:'Last player standing wins! Shoot others with your bullets.',           minPlayers:2, aura:35 },
   { id:'pingpong', name:'Ping Pong',       icon:'🏓', desc:'Tournament bracket! Beat opponents 1v1 in Pong. Last one standing wins!', minPlayers:2, aura:30 },
+  { id:'boxing',   name:'Boxing',          icon:'🥊', desc:'Tournament bracket! 1v1 boxing matches — punch your opponent to 0 HP. Last one standing wins!', minPlayers:2, aura:40 },
 ];
 
 const MG_MAP_RLGL = (() => {
@@ -686,6 +687,16 @@ const SHOOTER_SPEED = 18; // tiles per second
 // ── Ping Pong constants ──────────────────────────────────────────
 const PP_W=600,PP_H=360,PP_PADDLE_W=12,PP_PADDLE_H=80,PP_BALL_R=7;
 const PP_WIN_SCORE=5,PP_SPEED=290,PP_PAD_X=16,PP_PAD_SPEED=340;
+
+// ── Boxing constants ──────────────────────────────────────────
+const BX_HP=100;
+const BX_ATTACKS={
+  jab:     {label:'Jab',     icon:'🥊',dmg:12,cd:450, blockMult:0.2,color:'#74b9ff',key:'J'},
+  cross:   {label:'Cross',   icon:'💥',dmg:20,cd:750, blockMult:0.2,color:'#a29bfe',key:'K'},
+  uppercut:{label:'Uppercut',icon:'⬆️',dmg:30,cd:1200,blockMult:0.1,color:'#fd79a8',key:'L'},
+};
+const BX_BLOCK_DURATION=650;
+const BX_BLOCK_CD=850;
 
 function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS,shooter:MG_MAP_SHOOTER}[t]||MG_MAP_TAG;}
 
@@ -2073,6 +2084,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const ppPaddleDirRef    = useRef(0);
   const ppPadWriteRef     = useRef(0);
   const [ppTick, setPPTick] = useState(0);
+  // Boxing refs
+  const bxLastPunchRef = useRef({jab:0,cross:0,uppercut:0});
+  const bxLastBlockRef = useRef(0);
+  const bxBlockingRef  = useRef(false);
+  const bxProcessRef   = useRef(false);
+  const [bxTick, setBxTick] = useState(0);
 
   const chatBoxRef = useRef(null);
   const u    = userData[me]||{};
@@ -2245,6 +2262,13 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => clearInterval(id);
   }, [inMG, mgState?.type, mgState?.status]);
 
+  // Tick for boxing cooldown display
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'boxing' || mgState?.status !== 'active') return;
+    const id = setInterval(() => setBxTick(t => t+1), 100);
+    return () => clearInterval(id);
+  }, [inMG, mgState?.type, mgState?.status]);
+
   // Keyboard paddle control (W/S or Up/Down)
   useEffect(() => {
     if (!inMG || mgState?.type !== 'pingpong') return;
@@ -2294,6 +2318,28 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     }, 2000);
     return () => clearTimeout(timer);
   }, [inMG, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, mgState?.startedBy, me]);
+
+  // Boxing host: advance 'waiting' → 'playing' after 3s; skip byes
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'boxing' || mgState.status !== 'active') return;
+    if (mgState.startedBy !== me || mgState.bxMatchStatus !== 'waiting') return;
+    const rounds = mgState.bxRounds; if (!rounds) return;
+    const match = rounds[mgState.bxRound]?.[mgState.bxMatch];
+    if (!match) return;
+    if (match.p2 === null) {
+      const ri = mgState.bxRound;
+      const nextMi = rounds[ri].findIndex((m,i) => i>mgState.bxMatch && m.p2!==null && m.winner===null);
+      if (nextMi !== -1) FB.ref('minigame/state').update({bxMatch:nextMi,bxP1HP:BX_HP,bxP2HP:BX_HP});
+      else bxAdvanceRound(rounds, ri);
+      return;
+    }
+    const timer = setTimeout(() => {
+      FB.ref('minigame/bxPunches').remove();
+      FB.ref('minigame/bxBlocks').remove();
+      FB.ref('minigame/state').update({bxMatchStatus:'playing',bxP1HP:BX_HP,bxP2HP:BX_HP});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, bxAdvanceRound]);
 
   // Host: ball physics game loop
   useEffect(() => {
@@ -2459,6 +2505,45 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => window.removeEventListener('keydown', onDown);
   }, [shoot]);
 
+  // Boxing: punch and block actions
+  const bxPunch = useCallback((type) => {
+    if (!inMGRef.current || mgStateRef.current?.type !== 'boxing' || mgStateRef.current?.bxMatchStatus !== 'playing') return;
+    const st = mgStateRef.current;
+    const match = st.bxRounds?.[st.bxRound]?.[st.bxMatch];
+    if (!match || (match.p1 !== me && match.p2 !== me)) return;
+    const now = Date.now();
+    if (now - bxLastPunchRef.current[type] < BX_ATTACKS[type].cd) return;
+    bxLastPunchRef.current = {...bxLastPunchRef.current, [type]: now};
+    FB.ref('minigame/bxPunches').push({owner:me,type,ts:now,rnd:st.bxRound,mch:st.bxMatch});
+  }, [me]);
+
+  const bxBlock = useCallback(() => {
+    if (!inMGRef.current || mgStateRef.current?.type !== 'boxing' || mgStateRef.current?.bxMatchStatus !== 'playing') return;
+    const st = mgStateRef.current;
+    const match = st.bxRounds?.[st.bxRound]?.[st.bxMatch];
+    if (!match || (match.p1 !== me && match.p2 !== me)) return;
+    const now = Date.now();
+    if (now - bxLastBlockRef.current < BX_BLOCK_CD) return;
+    bxLastBlockRef.current = now;
+    bxBlockingRef.current = true;
+    FB.ref('minigame/bxBlocks/'+me).set({ts:now});
+    setTimeout(() => { bxBlockingRef.current = false; }, BX_BLOCK_DURATION);
+  }, [me]);
+
+  // Boxing keyboard: J=Jab, K=Cross, L=Uppercut, B=Block
+  useEffect(() => {
+    const onDown = e => {
+      if (mgStateRef.current?.type !== 'boxing') return;
+      const k = e.key.toLowerCase();
+      if (k==='j') bxPunch('jab');
+      else if (k==='k') bxPunch('cross');
+      else if (k==='l') bxPunch('uppercut');
+      else if (k==='b' && !e.repeat) bxBlock();
+    };
+    window.addEventListener('keydown', onDown);
+    return () => window.removeEventListener('keydown', onDown);
+  }, [bxPunch, bxBlock]);
+
   // Admin: hit detection + bullet expiry via interval (not Firebase listener to avoid loops)
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !isAdmin) return;
@@ -2507,6 +2592,57 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     }, 100);
     return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
+
+  // Admin: process boxing punches every 80ms
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'boxing' || mgState.bxMatchStatus !== 'playing' || !isAdmin) return;
+    const rounds = mgState.bxRounds;
+    const match = rounds?.[mgState.bxRound]?.[mgState.bxMatch];
+    if (!match?.p1 || !match?.p2) return;
+    const rnd = mgState.bxRound, mch = mgState.bxMatch;
+    const interval = setInterval(() => {
+      if (bxProcessRef.current) return;
+      bxProcessRef.current = true;
+      Promise.all([
+        FB.ref('minigame/bxPunches').once('value'),
+        FB.ref('minigame/bxBlocks').once('value'),
+        FB.ref('minigame/state').once('value'),
+      ]).then(([pSnap,bSnap,stSnap]) => {
+        const punches=pSnap.val()||{}, blocks=bSnap.val()||{}, st=stSnap.val();
+        if (!st||st.bxMatchStatus!=='playing'||st.bxRound!==rnd||st.bxMatch!==mch){bxProcessRef.current=false;return;}
+        const now=Date.now();
+        let p1HP=st.bxP1HP??BX_HP, p2HP=st.bxP2HP??BX_HP;
+        const removals=[];
+        Object.entries(punches).forEach(([id,punch])=>{
+          if(punch.rnd!==rnd||punch.mch!==mch){removals.push(id);return;}
+          const atk=BX_ATTACKS[punch.type]; if(!atk)return;
+          const isP1=punch.owner===match.p1,isP2=punch.owner===match.p2;
+          if(!isP1&&!isP2){removals.push(id);return;}
+          const targetName=isP1?match.p2:match.p1;
+          const blocking=blocks[targetName]&&(now-blocks[targetName].ts<BX_BLOCK_DURATION);
+          const dmg=Math.round(atk.dmg*(blocking?atk.blockMult:1));
+          if(isP1) p2HP=Math.max(0,p2HP-dmg);
+          else     p1HP=Math.max(0,p1HP-dmg);
+          removals.push(id);
+        });
+        const ups={bxP1HP:p1HP,bxP2HP:p2HP};
+        const rm=removals.map(id=>FB.ref('minigame/bxPunches/'+id).remove());
+        if(p1HP<=0||p2HP<=0){
+          const w=p1HP>0?match.p1:match.p2;
+          Object.assign(ups,{bxMatchStatus:'roundOver',bxRoundWinner:w});
+          Promise.all(rm).then(()=>{
+            FB.ref('minigame/state').update(ups);
+            const snapRounds=JSON.parse(JSON.stringify(rounds));
+            setTimeout(()=>bxHandleMatchWin(w,p1HP,p2HP,snapRounds,rnd,mch),2500);
+          });
+        } else {
+          Promise.all(rm).then(()=>FB.ref('minigame/state').update(ups));
+        }
+        bxProcessRef.current=false;
+      }).catch(()=>{bxProcessRef.current=false;});
+    },80);
+    return ()=>clearInterval(interval);
+  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, isAdmin, bxHandleMatchWin]);
 
   // Sync raw bullet data from Firebase
   const [bullets2, setBullets2] = useState([]);
@@ -2615,6 +2751,16 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       updates['minigame/state/ppS1'] = 0;
       updates['minigame/state/ppS2'] = 0;
     }
+    if (mgState?.type === 'boxing') {
+      const allP = [...new Set([...pList, me])];
+      const rounds = generatePPRound1(allP);
+      updates['minigame/state/bxRounds'] = rounds;
+      updates['minigame/state/bxRound'] = 0;
+      updates['minigame/state/bxMatch'] = 0;
+      updates['minigame/state/bxMatchStatus'] = 'waiting';
+      updates['minigame/state/bxP1HP'] = BX_HP;
+      updates['minigame/state/bxP2HP'] = BX_HP;
+    }
     FB.ref().update(updates);
   }, [mgPlayers, mgState, me]);
 
@@ -2672,6 +2818,35 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
     FB.ref('minigame/state').update({ppRounds:nr,ppMatch:nextMi!==-1?nextMi:matchIdx+1,ppMatchStatus:'waiting',ppBall:null,ppS1:0,ppS2:0});
   }, [ppAdvanceRound]);
+
+  const bxAdvanceRound = useCallback((rounds, roundIdx) => {
+    const winners = rounds[roundIdx].map(m => m.winner);
+    if (winners.length <= 1) {
+      FB.ref('minigame/bxPunches').remove();
+      FB.ref('minigame/bxBlocks').remove();
+      FB.ref('minigame/state').update({bxRounds:rounds,bxMatchStatus:'done',status:'ended',winner:winners[0]||null,type:'boxing'});
+      return;
+    }
+    const next=[];
+    for(let i=0;i<winners.length;i+=2)
+      next.push(i+1<winners.length?{p1:winners[i],p2:winners[i+1],winner:null,s1:0,s2:0}:{p1:winners[i],p2:null,winner:winners[i],s1:0,s2:0});
+    rounds.push(next);
+    FB.ref('minigame/bxPunches').remove();
+    FB.ref('minigame/bxBlocks').remove();
+    FB.ref('minigame/state').update({bxRounds:rounds,bxRound:roundIdx+1,bxMatch:0,bxMatchStatus:'waiting',bxP1HP:BX_HP,bxP2HP:BX_HP});
+  }, []);
+
+  const bxHandleMatchWin = useCallback((winner, p1HP, p2HP, rounds, roundIdx, matchIdx) => {
+    const nr = JSON.parse(JSON.stringify(rounds));
+    nr[roundIdx][matchIdx].winner=winner;
+    nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
+    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    if (allDone) { bxAdvanceRound(nr, roundIdx); return; }
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    FB.ref('minigame/bxPunches').remove();
+    FB.ref('minigame/bxBlocks').remove();
+    FB.ref('minigame/state').update({bxRounds:nr,bxMatch:nextMi!==-1?nextMi:matchIdx+1,bxMatchStatus:'waiting',bxP1HP:BX_HP,bxP2HP:BX_HP});
+  }, [bxAdvanceRound]);
 
   const endMinigame = useCallback(() => {
     const alive = Object.entries(mgPlayers).filter(([_,p])=>!p.eliminated);
@@ -2831,6 +3006,28 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&!mgPlayers[me]?.eliminated&&(
           <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none',zIndex:5}}>🔫</button>
         )}
+        {inMG&&mgState?.type==='boxing'&&mgState?.bxMatchStatus==='playing'&&(()=>{
+          const match=mgState.bxRounds?.[mgState.bxRound]?.[mgState.bxMatch];
+          if(!match||(match.p1!==me&&match.p2!==me)) return null;
+          const now=Date.now();
+          const blockCD=now-bxLastBlockRef.current<BX_BLOCK_CD;
+          void bxTick;
+          return(<>
+            {Object.entries(BX_ATTACKS).map(([type,atk])=>{
+              const onCD=now-bxLastPunchRef.current[type]<atk.cd;
+              return(<button key={type} onPointerDown={e=>{e.preventDefault();bxPunch(type);}}
+                style={{height:52,minWidth:46,padding:'0 8px',borderRadius:10,border:`1px solid ${onCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:onCD?'rgba(255,255,255,.03)':'rgba(253,203,110,.12)',color:onCD?'#444':'#fdcb6e',fontSize:18,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,transition:'all .1s'}}>
+                <span>{atk.icon}</span>
+                <span style={{fontSize:7,fontWeight:700,letterSpacing:.3}}>{atk.label}</span>
+              </button>);
+            })}
+            <button onPointerDown={e=>{e.preventDefault();bxBlock();}}
+              style={{height:52,minWidth:46,padding:'0 8px',borderRadius:10,border:`1px solid ${blockCD?'rgba(255,255,255,.05)':'rgba(116,185,255,.3)'}`,background:blockCD?'rgba(255,255,255,.03)':'rgba(116,185,255,.12)',color:blockCD?'#444':'#74b9ff',fontSize:18,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,transition:'all .1s'}}>
+              <span>🛡️</span>
+              <span style={{fontSize:7,fontWeight:700,letterSpacing:.3}}>Block</span>
+            </button>
+          </>);
+        })()}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
           <span style={{display:'block',width:16,height:2,background:'currentColor',borderRadius:1}}/>
@@ -2987,9 +3184,17 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               {mgState.ppMatchStatus==='playing'&&<span style={{marginLeft:8,color:'#fff'}}>{mgState.ppS1||0} — {mgState.ppS2||0}</span>}
             </div>;
           })()}
+          {mgState.type==='boxing'&&isActive&&(()=>{
+            const match=mgState.bxRounds?.[mgState.bxRound]?.[mgState.bxMatch];
+            if(!match||!match.p2) return null;
+            return <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(253,203,110,.12)',border:'1px solid rgba(253,203,110,.3)',fontSize:12,fontWeight:800,color:'#fdcb6e'}}>
+              🥊 {mgPlayers[match.p1]?.name||match.p1} vs {mgPlayers[match.p2]?.name||match.p2}
+              {mgState.bxMatchStatus==='playing'&&<span style={{marginLeft:8,color:'#fff'}}>{mgState.bxP1HP??BX_HP} — {mgState.bxP2HP??BX_HP} HP</span>}
+            </div>;
+          })()}
 
           {isLobby&&<span style={{marginLeft:8,fontSize:11,color:'#fdcb6e',fontWeight:700}}>⏳ Waiting for players…</span>}
-          {isActive&&mgState.type!=='pingpong'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
+          {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
 
           <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
             <span style={{fontSize:11,color:'#333'}}>👥 {Object.keys(mgPlayers).length}</span>
@@ -3140,8 +3345,135 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           );
         })()}
 
-        {/* Active mini-game map — camera follows player (not ping pong) */}
-        {isActive&&mgState.type!=='pingpong'&&(()=>{
+        {/* Boxing arena */}
+        {isActive&&mgState.type==='boxing'&&(()=>{
+          const rounds=mgState.bxRounds||[];
+          const match=rounds[mgState.bxRound]?.[mgState.bxMatch];
+          const p1=match?.p1,p2=match?.p2;
+          const amP1=p1===me,amP2=p2===me,amFighter=amP1||amP2;
+          const playing=mgState.bxMatchStatus==='playing';
+          const waiting=mgState.bxMatchStatus==='waiting';
+          const roundOver=mgState.bxMatchStatus==='roundOver';
+          const p1HP=mgState.bxP1HP??BX_HP,p2HP=mgState.bxP2HP??BX_HP;
+          const p1Data=mgPlayers[p1]||{},p2Data=mgPlayers[p2]||{};
+          const hpColor=hp=>hp>60?'#2ecc71':hp>30?'#f39c12':'#e74c3c';
+          void bxTick;
+          const now=Date.now();
+          const BxBracketView=()=>(
+            <div style={{flex:1,overflowY:'auto',padding:8}}>
+              {rounds.map((rnd,ri)=>(
+                <div key={ri} style={{marginBottom:10}}>
+                  <div style={{fontSize:8,color:'#333',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,marginBottom:4}}>Round {ri+1}</div>
+                  {rnd.map((m,mi)=>(
+                    <div key={mi} style={{padding:'4px 6px',borderRadius:5,background:ri===mgState.bxRound&&mi===mgState.bxMatch?'rgba(253,203,110,.08)':'transparent',border:ri===mgState.bxRound&&mi===mgState.bxMatch?'1px solid rgba(253,203,110,.2)':'1px solid transparent',marginBottom:3}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:9}}>
+                        <span style={{color:m.winner===m.p1?'#fdcb6e':m.winner?'#555':'#888',fontWeight:m.winner===m.p1?700:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:60}}>{mgPlayers[m.p1]?.name||m.p1||'?'}</span>
+                        <span style={{color:'#333',fontSize:8}}>vs</span>
+                        <span style={{color:m.winner===m.p2?'#fdcb6e':m.winner?'#555':'#888',fontWeight:m.winner===m.p2?700:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:60,textAlign:'right'}}>{m.p2?mgPlayers[m.p2]?.name||m.p2:'BYE'}</span>
+                      </div>
+                      {m.winner&&<div style={{fontSize:8,color:'#555',textAlign:'center',marginTop:1}}>🏆 {mgPlayers[m.winner]?.name||m.winner}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+          return(
+            <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+              <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',background:'linear-gradient(180deg,#0a0010 0%,#1a0030 100%)'}}>
+                {/* Match header */}
+                <div style={{padding:'6px 14px',borderBottom:'1px solid rgba(255,255,255,.06)',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                  <span style={{fontSize:11,color:'#555',fontWeight:700}}>Round {(mgState.bxRound||0)+1} · Match {(mgState.bxMatch||0)+1}</span>
+                  {match&&match.p2&&<span style={{fontSize:11,color:'#aaa'}}>{p1Data.name||p1} <span style={{color:'#444'}}>vs</span> {p2Data.name||p2}</span>}
+                  <span style={{marginLeft:'auto',fontSize:10,padding:'2px 8px',borderRadius:8,
+                    background:playing?'rgba(46,204,113,.15)':waiting?'rgba(253,203,110,.12)':'rgba(231,76,60,.15)',
+                    color:playing?'#2ecc71':waiting?'#fdcb6e':'#e74c3c',fontWeight:700}}>
+                    {playing?'FIGHT':waiting?'Get Ready…':roundOver?`KO! ${mgPlayers[mgState.bxRoundWinner]?.name||mgState.bxRoundWinner} wins!`:''}
+                  </span>
+                </div>
+                {/* Fight area */}
+                <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,padding:16,position:'relative'}}>
+                  {match&&match.p2?(
+                    <>
+                      {/* HP bars row */}
+                      <div style={{width:'100%',maxWidth:500,display:'flex',alignItems:'center',gap:8}}>
+                        {/* P1 HP */}
+                        <div style={{flex:1}}>
+                          <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+                            <span style={{fontSize:10,color:'#aaa',fontWeight:700}}>{p1Data.name||p1}{amP1?' (you)':''}</span>
+                            <span style={{fontSize:10,color:hpColor(p1HP),fontWeight:900}}>{p1HP}</span>
+                          </div>
+                          <div style={{height:10,background:'rgba(255,255,255,.07)',borderRadius:5,overflow:'hidden'}}>
+                            <div style={{height:'100%',width:`${(p1HP/BX_HP)*100}%`,background:`linear-gradient(90deg,${hpColor(p1HP)},${hpColor(p1HP)}aa)`,borderRadius:5,transition:'width .15s'}}/>
+                          </div>
+                        </div>
+                        <span style={{fontSize:12,color:'#555',fontWeight:900,flexShrink:0}}>❤️</span>
+                        {/* P2 HP */}
+                        <div style={{flex:1}}>
+                          <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+                            <span style={{fontSize:10,color:hpColor(p2HP),fontWeight:900}}>{p2HP}</span>
+                            <span style={{fontSize:10,color:'#aaa',fontWeight:700}}>{amP2?' (you)':''}{p2Data.name||p2}</span>
+                          </div>
+                          <div style={{height:10,background:'rgba(255,255,255,.07)',borderRadius:5,overflow:'hidden'}}>
+                            <div style={{height:'100%',width:`${(p2HP/BX_HP)*100}%`,background:`linear-gradient(90deg,${hpColor(p2HP)}aa,${hpColor(p2HP)})`,borderRadius:5,marginLeft:'auto',transition:'width .15s'}}/>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Fighter avatars */}
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:isMobile?20:60,width:'100%',maxWidth:500}}>
+                        {/* P1 */}
+                        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+                          <div style={{fontSize:isMobile?52:72,filter:`drop-shadow(0 0 ${playing?20:8}px rgba(116,185,255,${playing?.6:.2}))`,transition:'filter .3s',transform:roundOver&&mgState.bxRoundWinner===p1?'scale(1.1)':roundOver&&mgState.bxRoundWinner!==p1?'scale(.85)':'scale(1)',opacity:p1HP<=0?.4:1}}>
+                            {p1Data.avatar||'🥊'}
+                          </div>
+                          {amP1&&bxBlockingRef.current&&<div style={{fontSize:9,padding:'2px 6px',borderRadius:6,background:'rgba(116,185,255,.2)',color:'#74b9ff',fontWeight:700}}>🛡️ BLOCKING</div>}
+                        </div>
+                        {/* VS or status */}
+                        <div style={{textAlign:'center'}}>
+                          {waiting&&<div style={{fontSize:isMobile?22:32,fontWeight:900,color:'#fdcb6e',textShadow:'0 0 30px rgba(253,203,110,.6)'}}>Get<br/>Ready!</div>}
+                          {playing&&<div style={{fontSize:isMobile?22:32,fontWeight:900,color:'#e74c3c',textShadow:'0 0 30px rgba(231,76,60,.6)'}}>VS</div>}
+                          {roundOver&&<div style={{fontSize:isMobile?18:24,fontWeight:900,color:'#fdcb6e',textShadow:'0 0 30px gold'}}>KO!</div>}
+                        </div>
+                        {/* P2 */}
+                        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+                          <div style={{fontSize:isMobile?52:72,filter:`drop-shadow(0 0 ${playing?20:8}px rgba(239,154,154,${playing?.6:.2}))`,transition:'filter .3s',transform:roundOver&&mgState.bxRoundWinner===p2?'scale(1.1)':roundOver&&mgState.bxRoundWinner!==p2?'scale(.85)':'scale(1)',opacity:p2HP<=0?.4:1}}>
+                            {p2Data.avatar||'🥊'}
+                          </div>
+                          {amP2&&bxBlockingRef.current&&<div style={{fontSize:9,padding:'2px 6px',borderRadius:6,background:'rgba(116,185,255,.2)',color:'#74b9ff',fontWeight:700}}>🛡️ BLOCKING</div>}
+                        </div>
+                      </div>
+                      {/* Controls hint */}
+                      {!isTouch&&amFighter&&playing&&(
+                        <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center'}}>
+                          {Object.entries(BX_ATTACKS).map(([type,atk])=>{
+                            const onCD=now-bxLastPunchRef.current[type]<atk.cd;
+                            return(<div key={type} style={{padding:'4px 10px',borderRadius:7,background:onCD?'rgba(255,255,255,.03)':'rgba(253,203,110,.08)',border:`1px solid ${onCD?'rgba(255,255,255,.05)':'rgba(253,203,110,.2)'}`,color:onCD?'#333':'#fdcb6e',fontSize:11,fontWeight:700}}>
+                              [{atk.key}] {atk.icon} {atk.label} <span style={{color:'#555',fontWeight:400}}>({atk.dmg}dmg)</span>
+                            </div>);
+                          })}
+                          <div style={{padding:'4px 10px',borderRadius:7,background:now-bxLastBlockRef.current<BX_BLOCK_CD?'rgba(255,255,255,.03)':'rgba(116,185,255,.08)',border:`1px solid ${now-bxLastBlockRef.current<BX_BLOCK_CD?'rgba(255,255,255,.05)':'rgba(116,185,255,.2)'}`,color:now-bxLastBlockRef.current<BX_BLOCK_CD?'#333':'#74b9ff',fontSize:11,fontWeight:700}}>
+                            [B] 🛡️ Block
+                          </div>
+                        </div>
+                      )}
+                      {!amFighter&&<div style={{fontSize:12,color:'#555',fontStyle:'italic'}}>Spectating… waiting for your match</div>}
+                    </>
+                  ):(
+                    <div style={{fontSize:14,color:'#555'}}>Loading match…</div>
+                  )}
+                </div>
+              </div>
+              {/* Bracket sidebar */}
+              {(!isMobile||showPanel)&&<div style={{width:isMobile?'70vw':180,position:isMobile?'absolute':undefined,right:isMobile?0:undefined,top:isMobile?0:undefined,bottom:isMobile?0:undefined,zIndex:isMobile?20:undefined,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',flexShrink:0}}>
+                <div style={{padding:'7px 10px',fontSize:9,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)'}}>Bracket</div>
+                <BxBracketView/>
+              </div>}
+            </div>
+          );
+        })()}
+
+        {/* Active mini-game map — camera follows player (not pingpong/boxing) */}
+        {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&(()=>{
           // Line-of-sight for Hide & Seek (Bresenham ray — walls block vision)
           let hnsVisible = null;
           if (mgState.type === 'hide') {
@@ -3340,7 +3672,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       {showQ&&(
         <div style={{position:'absolute',top:52,right:216,background:'#1a1a2a',border:'1px solid rgba(255,255,255,.08)',borderRadius:12,padding:16,width:290,zIndex:10,boxShadow:'0 8px 32px rgba(0,0,0,.7)',maxHeight:'60vh',overflowY:'auto'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-            <span style={{fontWeight:800,color:'#e0e4ff',fontSize:15}}>📋 Quests</span>
+            <span style={{fontWeight:800, color:'#e0e4ff',fontSize:15}}>📋 Quests</span>
             <button onClick={()=>setShowQ(false)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',fontSize:20}}>×</button>
           </div>
           {RPG_QUESTS.map(q=>{
