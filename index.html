@@ -2064,8 +2064,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const joystickKnobRef = useRef(null);
   const joystickBaseRef = useRef(null);
   const [bullets, setBullets] = useState([]);
-  const lastShootRef = useRef(0);
-  const lastDirRef   = useRef({dx:1,dy:0});
+  const lastShootRef   = useRef(0);
+  const lastDirRef     = useRef({dx:1,dy:0});
+  const eliminatedRef  = useRef(false);
   // Ping Pong refs
   const ppMgPlayersRef    = useRef({});
   const ppLocalPaddleRef  = useRef(PP_H/2 - PP_PADDLE_H/2);
@@ -2166,7 +2167,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   useEffect(() => {
     if (!inMG) return;
     const ref = FB.ref('minigame/players');
-    ref.on('value', snap => setMgPlayers(snap.val() || {}));
+    ref.on('value', snap => {
+      const all = snap.val() || {};
+      eliminatedRef.current = !!(all[me]?.eliminated);
+      setMgPlayers(all);
+    });
     return () => ref.off('value');
   }, [inMG]);
 
@@ -2366,6 +2371,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const move = useCallback((dx, dy) => {
     if (inMGRef.current && mgStateRef.current) {
       if (mgStateRef.current.type === 'pingpong') return;
+      if (mgStateRef.current.type === 'shooter' && eliminatedRef.current) return;
       const curMGState = mgStateRef.current;
       const map = getMGMap(curMGState.type);
       const p = mgPosRef.current;
@@ -2437,6 +2443,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   // Shooter: fire bullet — stores start pos + direction + timestamp only
   const shoot = useCallback(() => {
     if (!inMGRef.current || mgStateRef.current?.type !== 'shooter' || mgStateRef.current?.status !== 'active') return;
+    if (eliminatedRef.current) return;
     if (Date.now() - lastShootRef.current < 600) return;
     lastShootRef.current = Date.now();
     const {dx,dy} = lastDirRef.current;
@@ -2811,7 +2818,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
         {isTouch && Joystick()}
-        {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&(
+        {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&!mgPlayers[me]?.eliminated&&(
           <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none',zIndex:5}}>🔫</button>
         )}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -3201,7 +3208,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                   {renderPlayers(mgPlayers, mgPos, true, hnsVisible)}
                 </div>
               </div>
-              {mgState.type==='shooter'&&(
+              {mgState.type==='shooter'&&!mgPlayers[me]?.eliminated&&(
                 <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{position:'absolute',bottom:16,right:16,width:60,height:60,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.8)',color:'#fff',fontSize:24,cursor:'pointer',zIndex:10,boxShadow:'0 2px 12px rgba(255,68,68,.5)'}}>🔫</button>
               )}
             </div>
