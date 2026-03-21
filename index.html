@@ -616,6 +616,7 @@ const MINIGAME_TYPES = [
   { id:'shooter',  name:'Shooter',         icon:'🔫', desc:'Last player standing wins! Shoot others with your bullets.',           minPlayers:2, aura:35 },
   { id:'pingpong', name:'Ping Pong',       icon:'🏓', desc:'Tournament bracket! Beat opponents 1v1 in Pong. Last one standing wins!', minPlayers:2, aura:30 },
   { id:'boxing',   name:'Boxing',          icon:'🥊', desc:'Tournament bracket! 1v1 boxing matches — punch your opponent to 0 HP. Last one standing wins!', minPlayers:2, aura:40 },
+  { id:'soccer',   name:'Soccer Shootout', icon:'⚽', desc:'One player is the goalie, everyone else takes free kicks! Pick L/C/R to shoot or save. Most goals wins!', minPlayers:2, aura:30 },
 ];
 
 const MG_MAP_RLGL = (() => {
@@ -682,7 +683,7 @@ const MG_MAP_SHOOTER = (() => {
   return m;
 })();
 const SHOOTER_SPAWNS=[{x:2,y:2},{x:17,y:2},{x:2,y:13},{x:17,y:13},{x:9,y:2},{x:9,y:13},{x:2,y:7},{x:17,y:7}];
-const SHOOTER_SPEED = 18; // tiles per second
+const SHOOTER_SPEED = 30; // tiles per second
 
 // ── Ping Pong constants ──────────────────────────────────────────
 const PP_W=600,PP_H=360,PP_PADDLE_W=12,PP_PADDLE_H=80,PP_BALL_R=7;
@@ -697,6 +698,11 @@ const BX_ATTACKS={
 };
 const BX_BLOCK_DURATION=650;
 const BX_BLOCK_CD=850;
+
+// ── Soccer constants ──────────────────────────────────────────
+const SO_SHOTS_PER_PLAYER = 3;
+const SO_PICK_TIMEOUT = 7000;
+const SO_ZONES = ['L','C','R'];
 
 function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS,shooter:MG_MAP_SHOOTER}[t]||MG_MAP_TAG;}
 
@@ -2297,6 +2303,28 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => cancelAnimationFrame(rafId);
   }, [inMG, mgState?.type, mgState?.status, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, me]);
 
+  // PingPong: native non-passive touch handler so preventDefault() works on mobile
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'pingpong' || mgState?.status !== 'active' || mgState?.ppMatchStatus !== 'playing') return;
+    const rounds = mgState?.ppRounds;
+    const match = rounds?.[mgState.ppRound]?.[mgState.ppMatch];
+    if (!match || (match.p1 !== me && match.p2 !== me)) return;
+    const onTouch = e => {
+      const wrap = document.querySelector('[data-pp-wrap]');
+      if (!wrap || !e.touches?.[0]) return;
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const sc = rect.width / PP_W;
+      const gameY = (e.touches[0].clientY - rect.top) / sc - PP_PADDLE_H/2;
+      ppLocalPaddleRef.current = Math.max(0, Math.min(PP_H-PP_PADDLE_H, gameY));
+      const now = Date.now();
+      if (now - ppPadWriteRef.current > 33) { ppPadWriteRef.current = now; FB.ref('minigame/players/'+me+'/paddleY').set(ppLocalPaddleRef.current); }
+    };
+    document.addEventListener('touchmove', onTouch, {passive:false});
+    document.addEventListener('touchstart', onTouch, {passive:false});
+    return () => { document.removeEventListener('touchmove', onTouch); document.removeEventListener('touchstart', onTouch); };
+  }, [inMG, mgState?.type, mgState?.status, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, me]);
+
   // Host: advance from 'waiting' → 'playing' after 2s; skip byes
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'pingpong' || mgState.status !== 'active') return;
@@ -2530,6 +2558,18 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     setTimeout(() => { bxBlockingRef.current = false; }, BX_BLOCK_DURATION);
   }, [me]);
 
+  // Soccer: shoot or dive pick
+  const soPick = useCallback((zone) => {
+    if (!inMGRef.current || mgStateRef.current?.type !== 'soccer' || mgStateRef.current?.soStatus !== 'picking') return;
+    const st = mgStateRef.current;
+    const amGoalie = st.soGoalie === me;
+    const currentShooter = (st.soShooters||[])[st.soShotIdx||0];
+    const amShooter = currentShooter === me;
+    if (!amGoalie && !amShooter) return;
+    if (amGoalie) { if (st.soGoaliePick) return; FB.ref('minigame/state/soGoaliePick').set(zone); }
+    else { if (st.soShooterPick) return; FB.ref('minigame/state/soShooterPick').set(zone); }
+  }, [me]);
+
   // Boxing keyboard: J=Jab, K=Cross, L=Uppercut, B=Block
   useEffect(() => {
     const onDown = e => {
@@ -2654,6 +2694,52 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => clearTimeout(timer);
   }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, bxHandleMatchWin]);
 
+  // Admin: process soccer picks every 100ms
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.soStatus !== 'picking' || !isAdmin) return;
+    const interval = setInterval(() => {
+      FB.ref('minigame/state').once('value').then(snap => {
+        const st = snap.val();
+        if (!st || st.type !== 'soccer' || st.soStatus !== 'picking') return;
+        const bothPicked = st.soShooterPick && st.soGoaliePick;
+        const timedOut = Date.now() - (st.soPickTs||0) > SO_PICK_TIMEOUT;
+        if (!bothPicked && !timedOut) return;
+        const sPick = st.soShooterPick || SO_ZONES[Math.floor(Math.random()*3)];
+        const gPick = st.soGoaliePick || SO_ZONES[Math.floor(Math.random()*3)];
+        const goal = sPick !== gPick;
+        const shooter = (st.soShooters||[])[st.soShotIdx||0];
+        const newScores = {...(st.soScores||{})};
+        if (goal && shooter) newScores[shooter] = (newScores[shooter]||0) + 1;
+        const newSaves = goal ? (st.soSaves||0) : (st.soSaves||0) + 1;
+        FB.ref('minigame/state').update({soShooterPick:sPick, soGoaliePick:gPick, soGoal:goal, soStatus:'reveal', soScores:newScores, soSaves:newSaves});
+      });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.type, mgState?.soStatus, isAdmin]);
+
+  // Host: soccer 'reveal' → next shot or end
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.soStatus !== 'reveal') return;
+    if (mgState.startedBy !== me) return;
+    const timer = setTimeout(() => {
+      FB.ref('minigame/state').once('value').then(snap => {
+        const st = snap.val();
+        if (!st || st.type !== 'soccer' || st.soStatus !== 'reveal') return;
+        const nextIdx = (st.soShotIdx||0) + 1;
+        const total = (st.soShooters||[]).length;
+        if (nextIdx >= total) {
+          const scores = st.soScores || {};
+          const maxGoals = Math.max(0, ...Object.values(scores));
+          const winner = maxGoals === 0 ? st.soGoalie : Object.entries(scores).sort((a,b)=>b[1]-a[1])[0]?.[0] || null;
+          FB.ref('minigame/state').update({soShotIdx:nextIdx, soStatus:'ended', status:'ended', winner, type:'soccer'});
+        } else {
+          FB.ref('minigame/state').update({soShotIdx:nextIdx, soStatus:'picking', soPickTs:Date.now(), soShooterPick:null, soGoaliePick:null, soGoal:null});
+        }
+      });
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.type, mgState?.soStatus, mgState?.startedBy, me]);
+
   // Sync raw bullet data from Firebase
   const [bullets2, setBullets2] = useState([]);
   useEffect(() => {
@@ -2771,6 +2857,24 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       updates['minigame/state/bxMatchStatus'] = 'waiting';
       updates['minigame/state/bxP1HP'] = BX_HP;
       updates['minigame/state/bxP2HP'] = BX_HP;
+    }
+    if (mgState?.type === 'soccer') {
+      const allP = [...new Set([...pList, me])];
+      const goalie = allP[Math.floor(Math.random() * allP.length)];
+      const shooters = allP.filter(p => p !== goalie);
+      // Each shooter gets SO_SHOTS_PER_PLAYER shots, sequential per player
+      const shootOrder = shooters.flatMap(s => Array(SO_SHOTS_PER_PLAYER).fill(s));
+      const initScores = Object.fromEntries(shooters.map(s => [s, 0]));
+      updates['minigame/state/soGoalie'] = goalie;
+      updates['minigame/state/soShooters'] = shootOrder;
+      updates['minigame/state/soShotIdx'] = 0;
+      updates['minigame/state/soStatus'] = 'picking';
+      updates['minigame/state/soPickTs'] = Date.now();
+      updates['minigame/state/soScores'] = initScores;
+      updates['minigame/state/soSaves'] = 0;
+      updates['minigame/state/soShooterPick'] = null;
+      updates['minigame/state/soGoaliePick'] = null;
+      updates['minigame/state/soGoal'] = null;
     }
     FB.ref().update(updates);
   }, [mgPlayers, mgState, me]);
@@ -3013,7 +3117,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         })}
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
-        {isTouch && Joystick()}
+        {isTouch&&!(inMG&&(mgState?.type==='pingpong'||mgState?.type==='boxing'||mgState?.type==='soccer'))&&Joystick()}
         {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&!mgPlayers[me]?.eliminated&&(
           <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none',zIndex:5}}>🔫</button>
         )}
@@ -3037,6 +3141,24 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               <span>🛡️</span>
               <span style={{fontSize:7,fontWeight:700,letterSpacing:.3}}>Block</span>
             </button>
+          </>);
+        })()}
+        {inMG&&mgState?.type==='soccer'&&mgState?.soStatus==='picking'&&(()=>{
+          const amGoalie=mgState.soGoalie===me;
+          const currentShooter=(mgState.soShooters||[])[mgState.soShotIdx||0];
+          const amShooter=currentShooter===me;
+          if(!amGoalie&&!amShooter) return null;
+          const alreadyPicked=amGoalie?!!mgState.soGoaliePick:!!mgState.soShooterPick;
+          const icons={L:'⬅️',C:'⬆️',R:'➡️'};
+          const labels={L:'Left',C:'Center',R:'Right'};
+          return(<>
+            {SO_ZONES.map(zone=>(
+              <button key={zone} onPointerDown={e=>{e.preventDefault();soPick(zone);}}
+                style={{height:52,minWidth:52,padding:'0 6px',borderRadius:10,border:`1px solid ${alreadyPicked?'rgba(255,255,255,.05)':'rgba(253,203,110,.3)'}`,background:alreadyPicked?'rgba(255,255,255,.03)':'rgba(253,203,110,.1)',color:alreadyPicked?'#555':'#fdcb6e',fontSize:20,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,transition:'all .1s'}}>
+                <span>{icons[zone]}</span>
+                <span style={{fontSize:7,fontWeight:700,letterSpacing:.3}}>{labels[zone]}</span>
+              </button>
+            ))}
           </>);
         })()}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -3203,9 +3325,17 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               {mgState.bxMatchStatus==='playing'&&<span style={{marginLeft:8,color:'#fff'}}>{mgState.bxP1HP??BX_HP} — {mgState.bxP2HP??BX_HP} HP</span>}
             </div>;
           })()}
+          {mgState.type==='soccer'&&isActive&&(()=>{
+            const shooters=[...new Set(mgState.soShooters||[])];
+            const scores=mgState.soScores||{};
+            return <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(67,181,129,.12)',border:'1px solid rgba(67,181,129,.3)',fontSize:12,fontWeight:800,color:'#43b581'}}>
+              ⚽ {mgPlayers[mgState.soGoalie]?.name||mgState.soGoalie} 🧤 {(mgState.soSaves||0)} saves
+              {shooters.map(u=><span key={u} style={{marginLeft:6,color:'#fdcb6e'}}>{mgPlayers[u]?.name||u} {scores[u]||0}G</span>)}
+            </div>;
+          })()}
 
           {isLobby&&<span style={{marginLeft:8,fontSize:11,color:'#fdcb6e',fontWeight:700}}>⏳ Waiting for players…</span>}
-          {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
+          {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
 
           <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
             <span style={{fontSize:11,color:'#333'}}>👥 {Object.keys(mgPlayers).length}</span>
@@ -3299,7 +3429,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               {/* Arena */}
               <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#03030a',overflow:'hidden',gap:6}}>
                 {/* Outer wrapper matches the scaled size so layout is correct */}
-                <div style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0}}>
+                <div data-pp-wrap="1" style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0}}>
                   {/* Inner arena at full PP_W×PP_H, scaled down via transform */}
                   <div style={{position:'absolute',top:0,left:0,width:PP_W,height:PP_H,
                     transform:`scale(${ppScale})`,transformOrigin:'top left',
@@ -3483,8 +3613,97 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           );
         })()}
 
-        {/* Active mini-game map — camera follows player (not pingpong/boxing) */}
-        {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&(()=>{
+        {/* Soccer arena */}
+        {isActive&&mgState.type==='soccer'&&(()=>{
+          const goalie = mgState.soGoalie;
+          const shooters = mgState.soShooters||[];
+          const shotIdx = mgState.soShotIdx||0;
+          const currentShooter = shooters[shotIdx];
+          const amGoalie = goalie===me;
+          const amShooter = currentShooter===me;
+          const soStatus = mgState.soStatus; // 'picking'|'reveal'|'ended'
+          const scores = mgState.soScores||{};
+          const saves = mgState.soSaves||0;
+          const sPick = mgState.soShooterPick, gPick = mgState.soGoaliePick, soGoal = mgState.soGoal;
+          const showReveal = soStatus==='reveal';
+          // Unique shooters list for scoreboard
+          const uniqueShooters = [...new Set(shooters)];
+
+          const zoneColor = (zone) => {
+            if (!showReveal) return 'rgba(255,255,255,.04)';
+            const shooterHere = sPick===zone, goalieHere = gPick===zone;
+            if (shooterHere && goalieHere) return 'rgba(255,80,80,.25)'; // saved!
+            if (shooterHere && soGoal) return 'rgba(253,203,110,.25)'; // goal!
+            if (goalieHere) return 'rgba(116,185,255,.15)'; // goalie dove here
+            return 'rgba(255,255,255,.04)';
+          };
+
+          return (
+            <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#030d08',overflow:'hidden',gap:14,padding:'16px 12px'}}>
+              {/* Status header */}
+              <div style={{fontSize:13,color:'#aaa',fontWeight:700,textAlign:'center'}}>
+                {soStatus==='picking'&&<>
+                  <span style={{color:'#fdcb6e'}}>{mgPlayers[currentShooter]?.name||currentShooter}</span>
+                  <span style={{color:'#666'}}> is shooting</span>
+                  {amShooter&&<span style={{color:'#4fc3f7'}}> — pick where to shoot!</span>}
+                  {amGoalie&&<span style={{color:'#fd79a8'}}> — pick where to dive!</span>}
+                </>}
+                {soStatus==='reveal'&&<>
+                  {soGoal
+                    ? <span style={{color:'#fdcb6e',fontSize:18}}>⚽ GOAL! {mgPlayers[currentShooter]?.name||currentShooter} scores!</span>
+                    : <span style={{color:'#4fc3f7',fontSize:18}}>🧤 SAVED! {mgPlayers[goalie]?.name||goalie} stops it!</span>}
+                </>}
+                {soStatus==='ended'&&<span style={{color:'#43b581'}}>Game over!</span>}
+              </div>
+
+              {/* Goal visual */}
+              <div style={{display:'flex',alignItems:'stretch',border:'4px solid rgba(255,255,255,.3)',borderRadius:6,overflow:'hidden',width:Math.min(320,window.innerWidth-40),height:150,flexShrink:0,background:'rgba(0,0,0,.5)',position:'relative'}}>
+                {/* Goal net lines */}
+                <div style={{position:'absolute',inset:0,backgroundImage:'repeating-linear-gradient(0deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 20px),repeating-linear-gradient(90deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 20px)',pointerEvents:'none'}}/>
+                {SO_ZONES.map(zone=>(
+                  <div key={zone} style={{flex:1,borderLeft:zone==='L'?'none':'1px solid rgba(255,255,255,.15)',display:'flex',alignItems:'center',justifyContent:'center',background:zoneColor(zone),position:'relative',transition:'background .3s'}}>
+                    <span style={{fontSize:11,fontWeight:700,color:'rgba(255,255,255,.2)'}}>{zone}</span>
+                    {showReveal&&sPick===zone&&<div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:40,lineHeight:1}}>⚽</div>}
+                    {showReveal&&gPick===zone&&<div style={{position:'absolute',bottom:8,left:'50%',transform:'translateX(-50%)',fontSize:28,lineHeight:1}}>🧤</div>}
+                    {/* My pick indicator (before reveal, only to me) */}
+                    {!showReveal&&amGoalie&&mgState.soGoaliePick===zone&&<div style={{position:'absolute',bottom:4,left:'50%',transform:'translateX(-50%)',fontSize:22}}>🧤</div>}
+                    {!showReveal&&amShooter&&mgState.soShooterPick===zone&&<div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:30}}>⚽</div>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Shot counter */}
+              <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                {shooters.map((s,i)=>{
+                  const done = i<shotIdx||(i===shotIdx&&soStatus==='reveal');
+                  const active = i===shotIdx&&soStatus==='picking';
+                  return <div key={i} style={{width:10,height:10,borderRadius:'50%',background:done?'rgba(253,203,110,.6)':'rgba(255,255,255,.12)',border:active?'2px solid #4fc3f7':'2px solid transparent',transition:'all .3s'}}/>;
+                })}
+              </div>
+
+              {/* Scoreboard */}
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
+                {uniqueShooters.map(u=>(
+                  <div key={u} style={{padding:'6px 12px',borderRadius:8,background:'rgba(253,203,110,.08)',border:'1px solid rgba(253,203,110,.2)',textAlign:'center',minWidth:80}}>
+                    <div style={{fontSize:10,color:u===me?'#fff':'#aaa',fontWeight:700,marginBottom:3}}>{mgPlayers[u]?.name||u}{u===me?' (you)':''}</div>
+                    <div style={{fontSize:22,fontWeight:900,color:'#fdcb6e'}}>{scores[u]||0}</div>
+                    <div style={{fontSize:9,color:'#555'}}>goals</div>
+                  </div>
+                ))}
+                <div style={{padding:'6px 12px',borderRadius:8,background:'rgba(116,185,255,.08)',border:'1px solid rgba(116,185,255,.2)',textAlign:'center',minWidth:80}}>
+                  <div style={{fontSize:10,color:goalie===me?'#fff':'#aaa',fontWeight:700,marginBottom:3}}>🧤 {mgPlayers[goalie]?.name||goalie}{goalie===me?' (you)':''}</div>
+                  <div style={{fontSize:22,fontWeight:900,color:'#74b9ff'}}>{saves}</div>
+                  <div style={{fontSize:9,color:'#555'}}>saves</div>
+                </div>
+              </div>
+
+              {soStatus==='picking'&&!amGoalie&&!amShooter&&<div style={{fontSize:12,color:'#444',fontStyle:'italic'}}>Spectating…</div>}
+            </div>
+          );
+        })()}
+
+        {/* Active mini-game map — camera follows player (not pingpong/boxing/soccer) */}
+        {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&(()=>{
           // Line-of-sight for Hide & Seek (Bresenham ray — walls block vision)
           let hnsVisible = null;
           if (mgState.type === 'hide') {
