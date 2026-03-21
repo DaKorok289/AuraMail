@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2223,9 +2223,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => ref.off('value');
   }, [inMG]);
 
-  // Game timer countdown
+  // Game timer countdown (not used for bracket/soccer games — they end when bracket completes)
   useEffect(() => {
     if (!inMG || !mgState || mgState.status !== 'active') return;
+    if (['pingpong','boxing','fencing','soccer'].includes(mgState.type)) return;
     const duration = mgState.type === 'hide' ? 120 : 60;
     setMgTimer(duration);
     if (mgTimerRef.current) clearInterval(mgTimerRef.current);
@@ -2960,7 +2961,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         const aimAge = now - (st.soAimTs || 0);
         if (aimAge > 3000) {
           botKickedIdx = shotIdx;
-          const angle = (Math.random() - 0.5) * Math.PI * 0.65;
+          // Aim at a random point within the goal with slight inaccuracy
+          const goalTargetX = SO_GOAL_X + 20 + Math.random() * (SO_GOAL_W - 40);
+          const inaccuracy = (Math.random() - 0.5) * 50;
+          const angle = Math.atan2(goalTargetX - SO_KICK_X + inaccuracy, SO_KICK_Y);
           const vx = Math.sin(angle) * SO_BALL_SPEED;
           const vy = -Math.cos(angle) * SO_BALL_SPEED;
           FB.ref('minigame/state').update({soBall:{x:SO_KICK_X,y:SO_KICK_Y,vx,vy,ts:now},soStatus:'kicked'});
@@ -3915,6 +3919,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                 const spawns=SHOOTER_SPAWNS.filter(s=>!Object.values(mgPlayers).some(p=>Math.round(p.x)===s.x&&Math.round(p.y)===s.y));
                 const sp=spawns[Math.floor(Math.random()*spawns.length)]||SHOOTER_SPAWNS[botCount%SHOOTER_SPAWNS.length];
                 FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y});
+              } else if(['corners','hide','tag'].includes(mgState?.type)){
+                const map=getMGMap(mgState.type);
+                // Spawn same way regular players do: bottom row, near horizontal center
+                const bx=Math.min(Math.max(1,Math.floor((map[0].length-2)/2)+Math.floor(Math.random()*5)-2),map[0].length-2);
+                const by=map.length-2;
+                FB.ref('minigame/players/'+botId).set({...base,x:bx,y:by,eliminated:false});
               } else {
                 FB.ref('minigame/players/'+botId).set(base);
               }
