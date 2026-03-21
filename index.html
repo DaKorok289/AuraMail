@@ -706,7 +706,7 @@ const SO_GOAL_X = (SO_W - SO_GOAL_W) / 2;
 const SO_GOALIE_W = 46;
 const SO_GOALIE_SPEED = 290;
 const SO_BALL_R = 10;
-const SO_BALL_SPEED = 460;
+const SO_BALL_SPEED = 750;
 const SO_KICK_X = SO_W / 2, SO_KICK_Y = SO_H - 80;
 const SO_SHOTS_PER_PLAYER = 3;
 const SO_AIM_TIMEOUT = 7000;
@@ -2659,29 +2659,85 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             if (allP[b.owner]?.eliminated) { FB.ref('minigame/bullets/'+id).remove(); return; }
             const elapsed = (Date.now() - b.ts) / 1000;
             const dist = SHOOTER_SPEED * elapsed;
-            // Walk the path to find wall hit or max distance
-            let hitWall = false, bTileX = b.sx, bTileY = b.sy;
+            // Walk the path tile-by-tile — check walls AND player hits at every step
+            let hitWall = false, hitUname = null;
             for (let d = 1; d <= Math.floor(dist) + 1; d++) {
               const tx = b.sx + b.dx * d, ty = b.sy + b.dy * d;
               if (!map[ty] || map[ty][tx] === 1 || map[ty][tx] === 2) { hitWall = true; break; }
-              bTileX = tx; bTileY = ty;
-            }
-            if (hitWall || elapsed > 3) { FB.ref('minigame/bullets/'+id).remove(); return; }
-            // Check player hits
-            Object.entries(allP).forEach(([uname, pd]) => {
-              if (uname === b.owner || pd.eliminated) return;
-              if (Math.round(pd.x) === bTileX && Math.round(pd.y) === bTileY) {
-                FB.ref('minigame/bullets/'+id).remove();
-                FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
-                FB.ref('minigame/players/'+uname).update({eliminated:true});
-                const alive = Object.entries(allP).filter(([u,p])=>!p.eliminated&&u!==uname);
-                if (alive.length<=1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||b.owner,type:'shooter'});
+              // Check every player at this tile
+              for (const [uname, pd] of Object.entries(allP)) {
+                if (uname === b.owner || pd.eliminated) continue;
+                if (Math.round(pd.x) === tx && Math.round(pd.y) === ty) { hitUname = uname; break; }
               }
-            });
+              if (hitUname) break;
+            }
+            if (hitWall || elapsed > 2) { FB.ref('minigame/bullets/'+id).remove(); return; }
+            if (hitUname) {
+              FB.ref('minigame/bullets/'+id).remove();
+              FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
+              FB.ref('minigame/players/'+hitUname).update({eliminated:true});
+              const alive = Object.entries(allP).filter(([u,p])=>!p.eliminated&&u!==hitUname);
+              if (alive.length<=1) FB.ref('minigame/state').update({status:'ended',winner:alive[0]?.[0]||b.owner,type:'shooter'});
+            }
           });
         });
       });
     }, 100);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.status, mgState?.type, isAdmin]);
+
+  // Admin: run bot AI for shooter
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !isAdmin) return;
+    const map = getMGMap('shooter');
+    const botMoveTs = {}; // last move time per bot
+    const botShootTs = {}; // last shoot time per bot
+    const interval = setInterval(() => {
+      FB.ref('minigame/players').once('value').then(snap => {
+        const allP = snap.val() || {};
+        const bots = Object.entries(allP).filter(([,p]) => p.isBot && !p.eliminated);
+        if (!bots.length) return;
+        const humans = Object.entries(allP).filter(([,p]) => !p.isBot && !p.eliminated);
+        const now = Date.now();
+        bots.forEach(([botId, bot]) => {
+          if (!humans.length) return;
+          // Find nearest human
+          let nearest = null, nearDist = Infinity;
+          humans.forEach(([,h]) => {
+            const d = Math.abs(h.x - bot.x) + Math.abs(h.y - bot.y);
+            if (d < nearDist) { nearDist = d; nearest = h; }
+          });
+          if (!nearest) return;
+          const dx = nearest.x > bot.x + 0.3 ? 1 : nearest.x < bot.x - 0.3 ? -1 : 0;
+          const dy = nearest.y > bot.y + 0.3 ? 1 : nearest.y < bot.y - 0.3 ? -1 : 0;
+          // Move bot every 300ms (slow enough to be beatable)
+          if (now - (botMoveTs[botId]||0) > 300) {
+            botMoveTs[botId] = now;
+            // Try primary direction, fall back to alternate to avoid getting stuck
+            const tryMove = (mdx, mdy) => {
+              if (mdx===0 && mdy===0) return false;
+              const nx = bot.x + mdx * 0.9, ny = bot.y + mdy * 0.9;
+              const tx = Math.round(nx), ty = Math.round(ny);
+              if (map[ty] && map[ty][tx] !== 1 && map[ty][tx] !== 2) {
+                FB.ref('minigame/players/'+botId).update({x:nx, y:ny});
+                return true;
+              }
+              return false;
+            };
+            if (!tryMove(dx, dy)) { tryMove(dx===0?1:0, dy===0?1:0); }
+          }
+          // Shoot every 900ms when roughly aligned — beatable timing
+          const aligned = dx===0 || dy===0;
+          if (aligned && now - (botShootTs[botId]||0) > 900) {
+            botShootTs[botId] = now;
+            const sdx = dx !== 0 ? dx : 0, sdy = dy !== 0 ? dy : 0;
+            if (sdx !== 0 || sdy !== 0) {
+              FB.ref('minigame/bullets/'+botId+'_'+now).set({sx:Math.round(bot.x),sy:Math.round(bot.y),dx:sdx,dy:sdy,owner:botId,ts:now});
+            }
+          }
+        });
+      });
+    }, 150);
     return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
 
@@ -3432,13 +3488,20 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               <div style={{fontSize:11,color:'#444',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Players Ready</div>
               {Object.entries(mgPlayers).map(([u,p])=>(
                 <div key={u} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                  <AvatarSprite emoji={p.avatar||'👤'} color={p.color||avColor(u)} size={28} glow={u===me} isMe={u===me}/>
-                  <span style={{fontSize:13,color:u===me?'#fff':'#aaa',fontWeight:u===me?700:400}}>{p.name||u}{u===me?' (you)':''}</span>
-                  <span style={{marginLeft:'auto',fontSize:11,color:'#43b581'}}>✓</span>
+                  <AvatarSprite emoji={p.isBot?'🤖':(p.avatar||'👤')} color={p.color||avColor(u)} size={28} glow={u===me} isMe={u===me}/>
+                  <span style={{fontSize:13,color:p.isBot?'#a29bfe':u===me?'#fff':'#aaa',fontWeight:u===me?700:400}}>{p.name||u}{u===me?' (you)':''}{p.isBot?' 🤖':''}</span>
+                  <span style={{marginLeft:'auto',fontSize:11,color:p.isBot?'#a29bfe':'#43b581'}}>{p.isBot?'CPU':'✓'}</span>
                 </div>
               ))}
               {Object.keys(mgPlayers).length===0&&<div style={{fontSize:12,color:'#333'}}>Waiting…</div>}
             </div>
+            {isAdmin&&mgState?.type==='shooter'&&<button onClick={()=>{
+              const botCount=Object.values(mgPlayers).filter(p=>p.isBot).length;
+              const botId='__bot_'+(botCount+1)+'__';
+              const spawns=SHOOTER_SPAWNS.filter(s=>!Object.values(mgPlayers).some(p=>Math.round(p.x)===s.x&&Math.round(p.y)===s.y));
+              const sp=spawns[Math.floor(Math.random()*spawns.length)]||SHOOTER_SPAWNS[botCount%SHOOTER_SPAWNS.length];
+              FB.ref('minigame/players/'+botId).set({name:'CPU '+(botCount+1),avatar:'🤖',color:'#a29bfe',x:sp.x,y:sp.y,score:0,isBot:true});
+            }} style={{padding:'6px 16px',borderRadius:8,border:'1px solid rgba(162,155,254,.3)',background:'rgba(162,155,254,.1)',color:'#a29bfe',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>+ Add Computer Player</button>}
             {!isAdmin&&<div style={{fontSize:12,color:'#444'}}>Waiting for {mgState.startedBy} to start the game…</div>}
             {isAdmin&&<div style={{fontSize:12,color:'#555'}}>Press <span style={{color:'#43b581',fontWeight:700}}>▶ Start</span> when everyone has joined.</div>}
           </div>
