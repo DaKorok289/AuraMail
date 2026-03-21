@@ -2800,8 +2800,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           if (!nearest) return;
           const dx = nearest.x > bot.x + 0.3 ? 1 : nearest.x < bot.x - 0.3 ? -1 : 0;
           const dy = nearest.y > bot.y + 0.3 ? 1 : nearest.y < bot.y - 0.3 ? -1 : 0;
-          // Move bot every 300ms (slow enough to be beatable)
-          if (now - (botMoveTs[botId]||0) > 300) {
+          // Move bot every 500ms (slow enough to be beatable)
+          if (now - (botMoveTs[botId]||0) > 500) {
             botMoveTs[botId] = now;
             // Try primary direction, fall back to alternate to avoid getting stuck
             const tryMove = (mdx, mdy) => {
@@ -2816,9 +2816,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             };
             if (!tryMove(dx, dy)) { tryMove(dx===0?1:0, dy===0?1:0); }
           }
-          // Shoot every 900ms when roughly aligned — beatable timing
+          // Shoot every 1800ms when roughly aligned — beatable timing
           const aligned = dx===0 || dy===0;
-          if (aligned && now - (botShootTs[botId]||0) > 900) {
+          if (aligned && now - (botShootTs[botId]||0) > 1800) {
             botShootTs[botId] = now;
             const sdx = dx !== 0 ? dx : 0, sdy = dy !== 0 ? dy : 0;
             if (sdx !== 0 || sdy !== 0) {
@@ -2828,6 +2828,145 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         });
       });
     }, 150);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.status, mgState?.type, isAdmin]);
+
+  // Admin: run bot AI for pingpong
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'pingpong' || mgState.status !== 'active' || !isAdmin) return;
+    const match = mgState.ppRounds?.[mgState.ppRound]?.[mgState.ppMatch];
+    if (!match) return;
+    const botIds = [match.p1, match.p2].filter(id => mgPlayers[id]?.isBot);
+    if (!botIds.length) return;
+    const interval = setInterval(() => {
+      const st = mgStateRef.current;
+      if (!st || st.ppMatchStatus !== 'playing' || !st.ppBall) return;
+      const {x, y, vx, vy, ts} = st.ppBall;
+      const elapsed = (Date.now() - ts) / 1000;
+      const by = y + vy * elapsed;
+      botIds.forEach(botId => {
+        const isP1 = match.p1 === botId;
+        const currentY = ppMgPlayersRef.current[botId]?.paddleY ?? (PP_H/2 - PP_PADDLE_H/2);
+        // Only track ball when it's moving toward bot's paddle
+        const ballMovingToward = isP1 ? vx < 0 : vx > 0;
+        const targetY = ballMovingToward
+          ? Math.max(0, Math.min(PP_H - PP_PADDLE_H, by - PP_PADDLE_H/2 + (Math.random()-0.5)*70))
+          : PP_H/2 - PP_PADDLE_H/2;
+        // Move slowly (3px per tick = beatable)
+        const newY = currentY + Math.sign(targetY - currentY) * Math.min(Math.abs(targetY - currentY), 3);
+        FB.ref('minigame/players/'+botId+'/paddleY').set(newY);
+      });
+    }, 80);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.status, mgState?.type, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, isAdmin]);
+
+  // Admin: run bot AI for boxing
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'boxing' || mgState.bxMatchStatus !== 'playing' || !isAdmin) return;
+    const match = mgState.bxRounds?.[mgState.bxRound]?.[mgState.bxMatch];
+    if (!match) return;
+    const botIds = [match.p1, match.p2].filter(id => mgPlayers[id]?.isBot);
+    if (!botIds.length) return;
+    const botPunchTs = {}, botBlockTs = {};
+    const types = ['jab','cross','uppercut'];
+    const interval = setInterval(() => {
+      const st = mgStateRef.current;
+      if (!st || st.bxMatchStatus !== 'playing') return;
+      const now = Date.now();
+      botIds.forEach(botId => {
+        if (botPunchTs[botId] === undefined) { botPunchTs[botId] = now + 2500; }
+        if (botBlockTs[botId] === undefined) { botBlockTs[botId] = now + 3000; }
+        // Punch every 2-3 seconds (beatable)
+        if (now - botPunchTs[botId] > 2000 + Math.random()*1000) {
+          botPunchTs[botId] = now;
+          const type = types[Math.floor(Math.random()*types.length)];
+          FB.ref('minigame/bxPunches').push({owner:botId,type,ts:now,rnd:st.bxRound,mch:st.bxMatch});
+        }
+        // Occasional block every 4-6 seconds
+        if (now - botBlockTs[botId] > 4000 + Math.random()*2000) {
+          botBlockTs[botId] = now;
+          FB.ref('minigame/bxBlocks/'+botId).set({ts:now});
+          setTimeout(() => FB.ref('minigame/bxBlocks/'+botId).remove(), BX_BLOCK_DURATION);
+        }
+      });
+    }, 250);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.type, isAdmin]);
+
+  // Admin: run bot AI for fencing
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'fencing' || mgState.fnMatchStatus !== 'playing' || !isAdmin) return;
+    const match = mgState.fnRounds?.[mgState.fnRound]?.[mgState.fnMatch];
+    if (!match) return;
+    const botIds = [match.p1, match.p2].filter(id => mgPlayers[id]?.isBot);
+    if (!botIds.length) return;
+    const botLungeTs = {};
+    const interval = setInterval(() => {
+      const st = mgStateRef.current;
+      if (!st || st.fnMatchStatus !== 'playing') return;
+      const now = Date.now();
+      const m = st.fnRounds?.[st.fnRound]?.[st.fnMatch];
+      if (!m) return;
+      botIds.forEach(botId => {
+        if (botLungeTs[botId] === undefined) { botLungeTs[botId] = now + 2500; }
+        const isP1 = m.p1 === botId;
+        const myX = isP1 ? (st.fnP1X ?? FN_P1_START) : (st.fnP2X ?? FN_P2_START);
+        const oppX = isP1 ? (st.fnP2X ?? FN_P2_START) : (st.fnP1X ?? FN_P1_START);
+        const dist = Math.abs(oppX - myX);
+        const minGap = 32;
+        // Drift toward opponent at 40% speed
+        const dir = oppX > myX ? 1 : -1;
+        const nudge = dir * FN_STEP * 0.4;
+        const newX = Math.max(FN_MIN_X, Math.min(FN_MAX_X, myX + nudge));
+        const clampedX = isP1 ? Math.min(newX, oppX - minGap) : Math.max(newX, oppX + minGap);
+        const field = isP1 ? 'fnP1X' : 'fnP2X';
+        FB.ref('minigame/state/'+field).set(clampedX);
+        // Lunge every 2-3s when in range
+        if (dist <= FN_LUNGE_RANGE && now - botLungeTs[botId] > 2000 + Math.random()*1000) {
+          botLungeTs[botId] = now;
+          FB.ref('minigame/fnLunges').push({owner:botId,ts:now,rnd:st.fnRound,mch:st.fnMatch});
+        }
+      });
+    }, 400);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.type, isAdmin]);
+
+  // Admin: run bot AI for soccer (goalie and shooter)
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.status !== 'active' || !isAdmin) return;
+    let botKickedIdx = -1;
+    const interval = setInterval(() => {
+      const st = mgStateRef.current;
+      if (!st || st.status !== 'active') return;
+      const now = Date.now();
+      const allP = ppMgPlayersRef.current; // tracks all mgPlayers
+      // Bot goalie: track ball when kicked
+      if (st.soStatus === 'kicked' && st.soBall && allP[st.soGoalie]?.isBot) {
+        const elapsed = (now - st.soBall.ts) / 1000;
+        const ballX = st.soBall.x + st.soBall.vx * elapsed;
+        const minGX = SO_GOAL_X + SO_GOALIE_W/2;
+        const maxGX = SO_GOAL_X + SO_GOAL_W - SO_GOALIE_W/2;
+        const targetX = Math.max(minGX, Math.min(maxGX, ballX));
+        const currentX = st.soGoalieX ?? SO_W/2;
+        const dir = targetX > currentX ? 1 : -1;
+        // 55% of full goalie speed = beatable
+        const newX = currentX + dir * Math.min(Math.abs(targetX - currentX), SO_GOALIE_SPEED * 0.55 * 0.2);
+        FB.ref('minigame/state/soGoalieX').set(newX);
+      }
+      // Bot shooter: aim and kick after 3 seconds
+      const shotIdx = st.soShotIdx || 0;
+      const currentShooter = (st.soShooters||[])[shotIdx];
+      if (allP[currentShooter]?.isBot && st.soStatus === 'aiming' && shotIdx !== botKickedIdx) {
+        const aimAge = now - (st.soAimTs || 0);
+        if (aimAge > 3000) {
+          botKickedIdx = shotIdx;
+          const angle = (Math.random() - 0.5) * Math.PI * 0.65;
+          const vx = Math.sin(angle) * SO_BALL_SPEED;
+          const vy = -Math.cos(angle) * SO_BALL_SPEED;
+          FB.ref('minigame/state').update({soBall:{x:SO_KICK_X,y:SO_KICK_Y,vx,vy,ts:now},soStatus:'kicked'});
+        }
+      }
+    }, 200);
     return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
 
@@ -3768,12 +3907,17 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               ))}
               {Object.keys(mgPlayers).length===0&&<div style={{fontSize:12,color:'#333'}}>Waiting…</div>}
             </div>
-            {isAdmin&&mgState?.type==='shooter'&&<button onClick={()=>{
+            {isAdmin&&<button onClick={()=>{
               const botCount=Object.values(mgPlayers).filter(p=>p.isBot).length;
               const botId='__bot_'+(botCount+1)+'__';
-              const spawns=SHOOTER_SPAWNS.filter(s=>!Object.values(mgPlayers).some(p=>Math.round(p.x)===s.x&&Math.round(p.y)===s.y));
-              const sp=spawns[Math.floor(Math.random()*spawns.length)]||SHOOTER_SPAWNS[botCount%SHOOTER_SPAWNS.length];
-              FB.ref('minigame/players/'+botId).set({name:'CPU '+(botCount+1),avatar:'🤖',color:'#a29bfe',x:sp.x,y:sp.y,score:0,isBot:true});
+              const base={name:'CPU '+(botCount+1),avatar:'🤖',color:'#a29bfe',isBot:true,score:0};
+              if(mgState?.type==='shooter'){
+                const spawns=SHOOTER_SPAWNS.filter(s=>!Object.values(mgPlayers).some(p=>Math.round(p.x)===s.x&&Math.round(p.y)===s.y));
+                const sp=spawns[Math.floor(Math.random()*spawns.length)]||SHOOTER_SPAWNS[botCount%SHOOTER_SPAWNS.length];
+                FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y});
+              } else {
+                FB.ref('minigame/players/'+botId).set(base);
+              }
             }} style={{padding:'6px 16px',borderRadius:8,border:'1px solid rgba(162,155,254,.3)',background:'rgba(162,155,254,.1)',color:'#a29bfe',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>+ Add Computer Player</button>}
             {!isAdmin&&<div style={{fontSize:12,color:'#444'}}>Waiting for {mgState.startedBy} to start the game…</div>}
             {isAdmin&&<div style={{fontSize:12,color:'#555'}}>Press <span style={{color:'#43b581',fontWeight:700}}>▶ Start</span> when everyone has joined.</div>}
