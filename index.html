@@ -1,4 +1,4 @@
-  <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2853,8 +2853,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         const targetY = ballMovingToward
           ? Math.max(0, Math.min(PP_H - PP_PADDLE_H, by - PP_PADDLE_H/2 + (Math.random()-0.5)*70))
           : PP_H/2 - PP_PADDLE_H/2;
-        // Move slowly (3px per tick = beatable)
-        const newY = currentY + Math.sign(targetY - currentY) * Math.min(Math.abs(targetY - currentY), 3);
+        // Move at moderate speed (8px per tick)
+        const newY = currentY + Math.sign(targetY - currentY) * Math.min(Math.abs(targetY - currentY), 8);
         FB.ref('minigame/players/'+botId+'/paddleY').set(newY);
       });
     }, 80);
