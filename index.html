@@ -617,6 +617,7 @@ const MINIGAME_TYPES = [
   { id:'pingpong', name:'Ping Pong',       icon:'🏓', desc:'Tournament bracket! Beat opponents 1v1 in Pong. Last one standing wins!', minPlayers:2, aura:30 },
   { id:'boxing',   name:'Boxing',          icon:'🥊', desc:'Tournament bracket! 1v1 boxing matches — punch your opponent to 0 HP. Last one standing wins!', minPlayers:2, aura:40 },
   { id:'soccer',   name:'Soccer Shootout', icon:'⚽', desc:'One player is the goalie, everyone else takes free kicks on a real field! Aim with mouse/drag, kick to score. Most goals wins!', minPlayers:2, aura:30 },
+  { id:'fencing',  name:'Fencing',         icon:'🤺', desc:'Tournament bracket! Duel 1v1 on the strip — advance, retreat, lunge and parry. First to 5 touches wins!', minPlayers:2, aura:35 },
 ];
 
 const MG_MAP_RLGL = (() => {
@@ -698,6 +699,18 @@ const BX_ATTACKS={
 };
 const BX_BLOCK_DURATION=650;
 const BX_BLOCK_CD=850;
+
+// ── Fencing constants ─────────────────────────────────────────
+const FN_HP = 5;
+const FN_W = 640, FN_H = 200;
+const FN_P1_START = 160, FN_P2_START = 480;
+const FN_MIN_X = 40, FN_MAX_X = FN_W - 40;
+const FN_LUNGE_RANGE = 140;
+const FN_LUNGE_CD = 900;
+const FN_PARRY_WINDOW = 550;
+const FN_PARRY_CD = 1400;
+const FN_STEP = 50;
+const FN_STEP_CD = 250;
 
 // ── Soccer constants ──────────────────────────────────────────
 const SO_W = 620, SO_H = 400;
@@ -2103,6 +2116,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const bxBlockingRef  = useRef(false);
   const bxProcessRef   = useRef(false);
   const [bxTick, setBxTick] = useState(0);
+  const fnLastLungeRef = useRef(0);
+  const fnLastParryRef = useRef(0);
+  const fnLastStepRef  = useRef(0);
+  const fnProcessRef   = useRef(false);
+  const [fnTick, setFnTick] = useState(0);
 
   const chatBoxRef = useRef(null);
   const u    = userData[me]||{};
@@ -2565,6 +2583,53 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     setTimeout(() => { bxBlockingRef.current = false; }, BX_BLOCK_DURATION);
   }, [me]);
 
+  // Fencing advance/retreat
+  const fnStep = useCallback((forward) => {
+    if (!inMGRef.current || mgStateRef.current?.type !== 'fencing' || mgStateRef.current?.fnMatchStatus !== 'playing') return;
+    const now = Date.now();
+    if (now - fnLastStepRef.current < FN_STEP_CD) return;
+    fnLastStepRef.current = now;
+    const st = mgStateRef.current;
+    const match = st.fnRounds?.[st.fnRound]?.[st.fnMatch];
+    if (!match || (match.p1 !== me && match.p2 !== me)) return;
+    const isP1 = match.p1 === me;
+    const myX = isP1 ? (st.fnP1X ?? FN_P1_START) : (st.fnP2X ?? FN_P2_START);
+    const oppX = isP1 ? (st.fnP2X ?? FN_P2_START) : (st.fnP1X ?? FN_P1_START);
+    // forward = toward opponent, backward = away
+    const dir = isP1 ? 1 : -1;
+    const delta = forward ? dir * FN_STEP : -dir * FN_STEP;
+    const newX = Math.max(FN_MIN_X, Math.min(FN_MAX_X, myX + delta));
+    // Don't overlap opponent
+    const minGap = 32;
+    const clampedX = isP1 ? Math.min(newX, oppX - minGap) : Math.max(newX, oppX + minGap);
+    const field = isP1 ? 'fnP1X' : 'fnP2X';
+    FB.ref('minigame/state/'+field).set(clampedX);
+  }, [me]);
+
+  // Fencing lunge (attack)
+  const fnLunge = useCallback(() => {
+    if (!inMGRef.current || mgStateRef.current?.type !== 'fencing' || mgStateRef.current?.fnMatchStatus !== 'playing') return;
+    const now = Date.now();
+    if (now - fnLastLungeRef.current < FN_LUNGE_CD) return;
+    fnLastLungeRef.current = now;
+    const st = mgStateRef.current;
+    const match = st.fnRounds?.[st.fnRound]?.[st.fnMatch];
+    if (!match || (match.p1 !== me && match.p2 !== me)) return;
+    FB.ref('minigame/fnLunges').push({owner:me, ts:now, rnd:st.fnRound, mch:st.fnMatch});
+  }, [me]);
+
+  // Fencing parry (defend)
+  const fnParry = useCallback(() => {
+    if (!inMGRef.current || mgStateRef.current?.type !== 'fencing' || mgStateRef.current?.fnMatchStatus !== 'playing') return;
+    const now = Date.now();
+    if (now - fnLastParryRef.current < FN_PARRY_CD) return;
+    fnLastParryRef.current = now;
+    const st = mgStateRef.current;
+    const match = st.fnRounds?.[st.fnRound]?.[st.fnMatch];
+    if (!match || (match.p1 !== me && match.p2 !== me)) return;
+    FB.ref('minigame/fnParries/'+me).set({ts:now});
+  }, [me]);
+
   // Soccer refs
   const soGoalieXRef = useRef(SO_W / 2);
   const soGoalieDirRef = useRef(0);
@@ -2700,10 +2765,13 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         const humans = Object.entries(allP).filter(([,p]) => !p.isBot && !p.eliminated);
         const now = Date.now();
         bots.forEach(([botId, bot]) => {
-          if (!humans.length) return;
-          // Find nearest human
+          // Initialize shoot cooldown with a 2.5s grace period on first encounter
+          if (botShootTs[botId] === undefined) { botShootTs[botId] = now + 2500; }
+          // Find nearest target — prefer humans, fall back to other bots when humans are gone
+          const targets = humans.length ? humans : bots.filter(([id]) => id !== botId);
+          if (!targets.length) return;
           let nearest = null, nearDist = Infinity;
-          humans.forEach(([,h]) => {
+          targets.forEach(([,h]) => {
             const d = Math.abs(h.x - bot.x) + Math.abs(h.y - bot.y);
             if (d < nearDist) { nearDist = d; nearest = h; }
           });
@@ -2800,6 +2868,115 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     }, 2500);
     return () => clearTimeout(timer);
   }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, bxHandleMatchWin]);
+
+  // Fencing host: 'waiting' → 'playing' after 2.5s; skip byes
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'fencing' || mgState.status !== 'active') return;
+    if (mgState.startedBy !== me || mgState.fnMatchStatus !== 'waiting') return;
+    const rounds = mgState.fnRounds; if (!rounds) return;
+    const match = rounds[mgState.fnRound]?.[mgState.fnMatch];
+    if (!match) return;
+    if (match.p2 === null) {
+      const ri = mgState.fnRound;
+      const nextMi = rounds[ri].findIndex((m,i) => i>mgState.fnMatch && m.p2!==null && m.winner===null);
+      if (nextMi !== -1) FB.ref('minigame/state').update({fnMatch:nextMi,fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
+      else fnAdvanceRound(rounds, ri);
+      return;
+    }
+    const timer = setTimeout(() => {
+      FB.ref('minigame/fnLunges').remove();
+      FB.ref('minigame/fnParries').remove();
+      FB.ref('minigame/state').update({fnMatchStatus:'playing',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.startedBy, me, fnAdvanceRound]);
+
+  // Fencing host: 'roundOver' → advance after 2.5s
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'fencing' || mgState.status !== 'active') return;
+    if (mgState.startedBy !== me || mgState.fnMatchStatus !== 'roundOver') return;
+    const rounds = mgState.fnRounds;
+    const rnd = mgState.fnRound, mch = mgState.fnMatch;
+    const winner = mgState.fnRoundWinner;
+    const p1HP = mgState.fnP1HP ?? 0, p2HP = mgState.fnP2HP ?? 0;
+    if (!winner || !rounds) return;
+    const timer = setTimeout(() => {
+      fnHandleMatchWin(winner, p1HP, p2HP, JSON.parse(JSON.stringify(rounds)), rnd, mch);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.startedBy, me, fnHandleMatchWin]);
+
+  // Fencing animation tick
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'fencing' || mgState?.status !== 'active') return;
+    const id = setInterval(()=>setFnTick(t=>t+1),50);
+    return ()=>clearInterval(id);
+  }, [inMG, mgState?.type, mgState?.status]);
+
+  // Fencing keyboard: WASD/arrows to step, F=lunge, G=parry
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'fencing') return;
+    const onDown = e => {
+      if (mgStateRef.current?.type !== 'fencing') return;
+      const k = e.key.toLowerCase();
+      if ((k==='a'||k==='arrowleft') && !e.repeat) fnStep(false);
+      else if ((k==='d'||k==='arrowright') && !e.repeat) fnStep(true);
+      else if (k==='f' && !e.repeat) { e.preventDefault(); fnLunge(); }
+      else if (k==='g' && !e.repeat) { e.preventDefault(); fnParry(); }
+    };
+    window.addEventListener('keydown', onDown);
+    return () => window.removeEventListener('keydown', onDown);
+  }, [inMG, mgState?.type, fnStep, fnLunge, fnParry]);
+
+  // Admin: process fencing lunges every 80ms
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'fencing' || mgState.fnMatchStatus !== 'playing' || !isAdmin) return;
+    const rounds = mgState.fnRounds;
+    const match = rounds?.[mgState.fnRound]?.[mgState.fnMatch];
+    if (!match?.p1 || !match?.p2) return;
+    const rnd = mgState.fnRound, mch = mgState.fnMatch;
+    const interval = setInterval(() => {
+      if (fnProcessRef.current) return;
+      fnProcessRef.current = true;
+      Promise.all([
+        FB.ref('minigame/fnLunges').once('value'),
+        FB.ref('minigame/fnParries').once('value'),
+        FB.ref('minigame/state').once('value'),
+      ]).then(([lSnap, parSnap, stSnap]) => {
+        const st = stSnap.val();
+        if (!st || st.fnMatchStatus !== 'playing' || st.fnRound !== rnd || st.fnMatch !== mch) { fnProcessRef.current=false; return; }
+        const lunges = lSnap.val() || {};
+        const parries = parSnap.val() || {};
+        const now = Date.now();
+        let p1HP = st.fnP1HP ?? FN_HP, p2HP = st.fnP2HP ?? FN_HP;
+        const p1X = st.fnP1X ?? FN_P1_START, p2X = st.fnP2X ?? FN_P2_START;
+        const dist = Math.abs(p2X - p1X);
+        const rm = [];
+        let ups = {};
+        Object.entries(lunges).forEach(([id, lng]) => {
+          if (lng.rnd !== rnd || lng.mch !== mch || now - lng.ts > 600) { rm.push(FB.ref('minigame/fnLunges/'+id).remove()); return; }
+          const isP1 = lng.owner === match.p1;
+          const isP2 = lng.owner === match.p2;
+          if (!isP1 && !isP2) { rm.push(FB.ref('minigame/fnLunges/'+id).remove()); return; }
+          if (dist > FN_LUNGE_RANGE) { rm.push(FB.ref('minigame/fnLunges/'+id).remove()); return; }
+          const targetId = isP1 ? match.p2 : match.p1;
+          const par = parries[targetId];
+          const isParried = par && (now - par.ts < FN_PARRY_WINDOW);
+          rm.push(FB.ref('minigame/fnLunges/'+id).remove());
+          if (!isParried) {
+            if (isP1) { p2HP = Math.max(0, p2HP-1); ups.fnP2HP = p2HP; }
+            else { p1HP = Math.max(0, p1HP-1); ups.fnP1HP = p1HP; }
+          }
+        });
+        if (p1HP <= 0 || p2HP <= 0) {
+          const w = p1HP > 0 ? match.p1 : match.p2;
+          Object.assign(ups, {fnMatchStatus:'roundOver', fnRoundWinner:w});
+        }
+        Promise.all(rm).then(() => { if(Object.keys(ups).length) FB.ref('minigame/state').update(ups); fnProcessRef.current=false; }).catch(()=>{fnProcessRef.current=false;});
+      }).catch(()=>{fnProcessRef.current=false;});
+    }, 80);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, isAdmin]);
 
   // Admin: soccer aim timeout → auto-kick
   useEffect(() => {
@@ -3006,6 +3183,18 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       updates['minigame/state/soScores'] = initScores;
       updates['minigame/state/soSaves'] = 0;
     }
+    if (mgState?.type === 'fencing') {
+      const allP = [...new Set([...pList, me])];
+      const rounds = generatePPRound1(allP);
+      updates['minigame/state/fnRounds'] = rounds;
+      updates['minigame/state/fnRound'] = 0;
+      updates['minigame/state/fnMatch'] = 0;
+      updates['minigame/state/fnMatchStatus'] = 'waiting';
+      updates['minigame/state/fnP1HP'] = FN_HP;
+      updates['minigame/state/fnP2HP'] = FN_HP;
+      updates['minigame/state/fnP1X'] = FN_P1_START;
+      updates['minigame/state/fnP2X'] = FN_P2_START;
+    }
     FB.ref().update(updates);
   }, [mgPlayers, mgState, me]);
 
@@ -3092,6 +3281,35 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     FB.ref('minigame/bxBlocks').remove();
     FB.ref('minigame/state').update({bxRounds:nr,bxMatch:nextMi!==-1?nextMi:matchIdx+1,bxMatchStatus:'waiting',bxP1HP:BX_HP,bxP2HP:BX_HP});
   }, [bxAdvanceRound]);
+
+  const fnAdvanceRound = useCallback((rounds, roundIdx) => {
+    const winners = rounds[roundIdx].map(m => m.winner);
+    if (winners.length <= 1) {
+      FB.ref('minigame/fnLunges').remove();
+      FB.ref('minigame/fnParries').remove();
+      FB.ref('minigame/state').update({fnRounds:rounds,fnMatchStatus:'done',status:'ended',winner:winners[0]||null,type:'fencing'});
+      return;
+    }
+    const next=[];
+    for(let i=0;i<winners.length;i+=2)
+      next.push(i+1<winners.length?{p1:winners[i],p2:winners[i+1],winner:null,s1:0,s2:0}:{p1:winners[i],p2:null,winner:winners[i],s1:0,s2:0});
+    rounds.push(next);
+    FB.ref('minigame/fnLunges').remove();
+    FB.ref('minigame/fnParries').remove();
+    FB.ref('minigame/state').update({fnRounds:rounds,fnRound:roundIdx+1,fnMatch:0,fnMatchStatus:'waiting',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
+  }, []);
+
+  const fnHandleMatchWin = useCallback((winner, p1HP, p2HP, rounds, roundIdx, matchIdx) => {
+    const nr = JSON.parse(JSON.stringify(rounds));
+    nr[roundIdx][matchIdx].winner=winner;
+    nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
+    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    if (allDone) { fnAdvanceRound(nr, roundIdx); return; }
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    FB.ref('minigame/fnLunges').remove();
+    FB.ref('minigame/fnParries').remove();
+    FB.ref('minigame/state').update({fnRounds:nr,fnMatch:nextMi!==-1?nextMi:matchIdx+1,fnMatchStatus:'waiting',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
+  }, [fnAdvanceRound]);
 
   const endMinigame = useCallback(() => {
     const alive = Object.entries(mgPlayers).filter(([_,p])=>!p.eliminated);
@@ -3247,7 +3465,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         })}
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
-        {isTouch&&!(inMG&&(mgState?.type==='pingpong'||mgState?.type==='boxing'||mgState?.type==='soccer'))&&Joystick()}
+        {isTouch&&!(inMG&&(mgState?.type==='pingpong'||mgState?.type==='boxing'||mgState?.type==='soccer'||mgState?.type==='fencing'))&&Joystick()}
         {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&!mgPlayers[me]?.eliminated&&(
           <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none',zIndex:5}}>🔫</button>
         )}
@@ -3270,6 +3488,31 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               style={{height:52,minWidth:46,padding:'0 8px',borderRadius:10,border:`1px solid ${blockCD?'rgba(255,255,255,.05)':'rgba(116,185,255,.3)'}`,background:blockCD?'rgba(255,255,255,.03)':'rgba(116,185,255,.12)',color:blockCD?'#444':'#74b9ff',fontSize:18,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,transition:'all .1s'}}>
               <span>🛡️</span>
               <span style={{fontSize:7,fontWeight:700,letterSpacing:.3}}>Block</span>
+            </button>
+          </>);
+        })()}
+        {inMG&&mgState?.type==='fencing'&&mgState?.fnMatchStatus==='playing'&&(()=>{
+          const match=mgState.fnRounds?.[mgState.fnRound]?.[mgState.fnMatch];
+          if(!match||(match.p1!==me&&match.p2!==me)) return null;
+          const now3=Date.now();
+          void fnTick;
+          const lCD=now3-fnLastLungeRef.current<FN_LUNGE_CD;
+          const pCD=now3-fnLastParryRef.current<FN_PARRY_CD;
+          const sCD=now3-fnLastStepRef.current<FN_STEP_CD;
+          const inRange2=Math.abs((mgState.fnP2X??FN_P2_START)-(mgState.fnP1X??FN_P1_START))<=FN_LUNGE_RANGE;
+          const btnS={height:52,minWidth:46,padding:'0 7px',borderRadius:10,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,fontSize:17,transition:'all .1s'};
+          return(<>
+            <button onPointerDown={e=>{e.preventDefault();fnStep(false);}} style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
+              <span>◀</span><span style={{fontSize:7,fontWeight:700}}>Retreat</span>
+            </button>
+            <button onPointerDown={e=>{e.preventDefault();fnLunge();}} style={{...btnS,border:`1px solid ${lCD||!inRange2?'rgba(255,255,255,.05)':'rgba(253,121,168,.4)'}`,background:lCD||!inRange2?'rgba(255,255,255,.03)':'rgba(253,121,168,.15)',color:lCD||!inRange2?'#444':'#fd79a8'}}>
+              <span>⚔️</span><span style={{fontSize:7,fontWeight:700}}>Lunge</span>
+            </button>
+            <button onPointerDown={e=>{e.preventDefault();fnParry();}} style={{...btnS,border:`1px solid ${pCD?'rgba(255,255,255,.05)':'rgba(116,185,255,.4)'}`,background:pCD?'rgba(255,255,255,.03)':'rgba(116,185,255,.15)',color:pCD?'#444':'#74b9ff'}}>
+              <span>🛡️</span><span style={{fontSize:7,fontWeight:700}}>Parry</span>
+            </button>
+            <button onPointerDown={e=>{e.preventDefault();fnStep(true);}} style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
+              <span>▶</span><span style={{fontSize:7,fontWeight:700}}>Advance</span>
             </button>
           </>);
         })()}
@@ -3456,6 +3699,14 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               {mgState.bxMatchStatus==='playing'&&<span style={{marginLeft:8,color:'#fff'}}>{mgState.bxP1HP??BX_HP} — {mgState.bxP2HP??BX_HP} HP</span>}
             </div>;
           })()}
+          {mgState.type==='fencing'&&isActive&&(()=>{
+            const match=mgState.fnRounds?.[mgState.fnRound]?.[mgState.fnMatch];
+            if(!match||!match.p2) return null;
+            return <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(253,121,168,.12)',border:'1px solid rgba(253,121,168,.3)',fontSize:12,fontWeight:800,color:'#fd79a8'}}>
+              🤺 {mgPlayers[match.p1]?.name||match.p1} vs {mgPlayers[match.p2]?.name||match.p2}
+              {mgState.fnMatchStatus==='playing'&&<span style={{marginLeft:8,color:'#fff'}}>{mgState.fnP1HP??FN_HP}–{mgState.fnP2HP??FN_HP} touches</span>}
+            </div>;
+          })()}
           {mgState.type==='soccer'&&isActive&&(()=>{
             const shooters=[...new Set(mgState.soShooters||[])];
             const scores=mgState.soScores||{};
@@ -3468,7 +3719,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           })()}
 
           {isLobby&&<span style={{marginLeft:8,fontSize:11,color:'#fdcb6e',fontWeight:700}}>⏳ Waiting for players…</span>}
-          {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
+          {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&mgState.type!=='fencing'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
 
           <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
             <span style={{fontSize:11,color:'#333'}}>👥 {Object.keys(mgPlayers).length}</span>
@@ -3863,8 +4114,125 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           );
         })()}
 
-        {/* Active mini-game map — camera follows player (not pingpong/boxing/soccer) */}
-        {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&(()=>{
+        {/* Fencing arena */}
+        {isActive&&mgState.type==='fencing'&&(()=>{
+          const rounds=mgState.fnRounds||[];
+          const match=rounds[mgState.fnRound]?.[mgState.fnMatch];
+          const p1=match?.p1,p2=match?.p2;
+          const amP1=p1===me,amP2=p2===me,amFencer=amP1||amP2;
+          void fnTick;
+          const fnScale=Math.min(1,(window.innerWidth-(isMobile?8:24))/FN_W);
+          const scaledW=FN_W*fnScale,scaledH=FN_H*fnScale;
+          const p1X=mgState.fnP1X??FN_P1_START,p2X=mgState.fnP2X??FN_P2_START;
+          const p1HP=mgState.fnP1HP??FN_HP,p2HP=mgState.fnP2HP??FN_HP;
+          const dist=Math.abs(p2X-p1X);
+          const inRange=dist<=FN_LUNGE_RANGE;
+          const now2=Date.now();
+          const lCooldown=now2-fnLastLungeRef.current<FN_LUNGE_CD;
+          const pCooldown=now2-fnLastParryRef.current<FN_PARRY_CD;
+          const stepCooldown=now2-fnLastStepRef.current<FN_STEP_CD;
+          // Bracket sidebar
+          const FnBracketView=()=>(
+            <div style={{padding:'12px 10px',overflowY:'auto',flex:1}}>
+              {rounds.map((round,ri)=>(
+                <div key={ri} style={{marginBottom:12}}>
+                  <div style={{fontSize:9,fontWeight:700,color:'#444',textTransform:'uppercase',letterSpacing:.8,marginBottom:6}}>
+                    {ri===rounds.length-1&&round.length===1?'Final':ri===0?'Round 1':`Round ${ri+1}`}
+                  </div>
+                  {round.map((m,mi)=>(
+                    <div key={mi} style={{marginBottom:5,padding:'5px 8px',borderRadius:6,
+                      background:ri===mgState.fnRound&&mi===mgState.fnMatch?'rgba(253,121,168,.08)':'rgba(255,255,255,.02)',
+                      border:`1px solid ${ri===mgState.fnRound&&mi===mgState.fnMatch?'rgba(253,121,168,.3)':'rgba(255,255,255,.05)'}`,
+                      opacity:m.p2===null?0.5:1}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,fontSize:10}}>
+                        <span style={{color:m.winner===m.p1?'#fdcb6e':m.p1===me?'#fff':'#aaa',fontWeight:m.winner===m.p1?800:400}}>{mgPlayers[m.p1]?.name||m.p1||'?'}</span>
+                        <span style={{color:'#333',fontSize:8}}>{m.winner?`${m.s1}-${m.s2}`:'vs'}</span>
+                        <span style={{color:m.winner===m.p2?'#fdcb6e':m.p2===me?'#fff':'#aaa',fontWeight:m.winner===m.p2?800:400}}>{m.p2?(mgPlayers[m.p2]?.name||m.p2):'BYE'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+          return(
+            <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+              <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#0d0a14',overflow:'hidden',gap:10,padding:'12px 8px'}}>
+                {/* HP bars */}
+                <div style={{width:Math.min(scaledW,500),display:'flex',gap:12,alignItems:'center',flexShrink:0}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                      <span style={{fontSize:11,color:amP1?'#fff':'#aaa',fontWeight:700}}>{mgPlayers[p1]?.name||p1}{amP1?' (you)':''}</span>
+                      <span style={{fontSize:11,color:'#fd79a8',fontWeight:800}}>{p1HP} 🤺</span>
+                    </div>
+                    <div style={{height:8,background:'rgba(255,255,255,.07)',borderRadius:4,overflow:'hidden'}}>
+                      <div style={{height:'100%',width:`${(p1HP/FN_HP)*100}%`,background:'linear-gradient(90deg,#fd79a8,#e84393)',borderRadius:4,transition:'width .2s'}}/>
+                    </div>
+                  </div>
+                  <div style={{fontSize:18,color:'#555',flexShrink:0}}>⚔️</div>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                      <span style={{fontSize:11,color:'#fd79a8',fontWeight:800}}>{p2HP} 🤺</span>
+                      <span style={{fontSize:11,color:amP2?'#fff':'#aaa',fontWeight:700}}>{mgPlayers[p2]?.name||p2}{amP2?' (you)':''}</span>
+                    </div>
+                    <div style={{height:8,background:'rgba(255,255,255,.07)',borderRadius:4,overflow:'hidden',direction:'rtl'}}>
+                      <div style={{height:'100%',width:`${(p2HP/FN_HP)*100}%`,background:'linear-gradient(90deg,#a29bfe,#6c5ce7)',borderRadius:4,transition:'width .2s'}}/>
+                    </div>
+                  </div>
+                </div>
+                {/* Strip */}
+                <div style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0}}>
+                  <div style={{position:'absolute',top:0,left:0,width:FN_W,height:FN_H,
+                    transform:`scale(${fnScale})`,transformOrigin:'top left',
+                    background:'linear-gradient(180deg,#1a1025 0%,#120d1e 100%)',
+                    border:'2px solid rgba(255,255,255,.1)',borderRadius:8,overflow:'hidden'}}>
+                    {/* Strip floor */}
+                    <div style={{position:'absolute',bottom:0,left:0,right:0,height:50,background:'linear-gradient(180deg,#2a1f3d,#1e1530)',borderTop:'2px solid rgba(255,255,255,.15)'}}/>
+                    {/* Center line */}
+                    <div style={{position:'absolute',left:'50%',top:40,bottom:0,width:2,background:'rgba(255,255,255,.12)'}}/>
+                    {/* P1 warning line */}
+                    <div style={{position:'absolute',left:FN_MIN_X+20,top:40,bottom:0,width:2,background:'rgba(253,121,168,.2)'}}/>
+                    {/* P2 warning line */}
+                    <div style={{position:'absolute',right:FN_MIN_X+20,top:40,bottom:0,width:2,background:'rgba(162,155,254,.2)'}}/>
+                    {/* Engagement range highlight */}
+                    {inRange&&<div style={{position:'absolute',left:p1X,width:p2X-p1X,top:0,bottom:0,background:'rgba(253,203,110,.04)',transition:'all .1s'}}/>}
+                    {/* In range indicator */}
+                    {inRange&&<div style={{position:'absolute',top:8,left:'50%',transform:'translateX(-50%)',fontSize:10,color:'rgba(253,203,110,.8)',fontWeight:700,background:'rgba(253,203,110,.1)',padding:'2px 8px',borderRadius:6,whiteSpace:'nowrap'}}>⚔️ IN RANGE</div>}
+                    {/* Match status overlay */}
+                    {mgState.fnMatchStatus==='waiting'&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:8}}>
+                      <div style={{fontSize:22}}>🤺</div>
+                      <div style={{fontSize:14,fontWeight:800,color:'#e0e4ff'}}>{mgPlayers[p1]?.name||p1} vs {mgPlayers[p2]?.name||p2}</div>
+                      <div style={{fontSize:11,color:'#555'}}>Match starting…</div>
+                    </div>}
+                    {mgState.fnMatchStatus==='roundOver'&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:6,background:'rgba(0,0,0,.5)'}}>
+                      <div style={{fontSize:28}}>🏆</div>
+                      <div style={{fontSize:16,fontWeight:900,color:'#fdcb6e'}}>{mgPlayers[mgState.fnRoundWinner]?.name||mgState.fnRoundWinner} wins!</div>
+                    </div>}
+                    {/* P1 fencer */}
+                    {match?.p2&&<div style={{position:'absolute',left:p1X-20,bottom:50,width:40,height:80,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:2,transition:'left .08s'}}>
+                      <div style={{fontSize:10,color:amP1?'#fff':'rgba(253,121,168,.8)',fontWeight:700,whiteSpace:'nowrap',background:'rgba(0,0,0,.6)',padding:'1px 5px',borderRadius:3}}>{mgPlayers[p1]?.name||p1}</div>
+                      <div style={{fontSize:44,lineHeight:1,filter:'drop-shadow(0 0 8px rgba(253,121,168,.6))'}}>🤺</div>
+                    </div>}
+                    {/* P2 fencer (flipped) */}
+                    {match?.p2&&<div style={{position:'absolute',left:p2X-20,bottom:50,width:40,height:80,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:2,transform:'scaleX(-1)',transition:'left .08s'}}>
+                      <div style={{fontSize:44,lineHeight:1,filter:'drop-shadow(0 0 8px rgba(162,155,254,.6))',transform:'scaleX(-1)'}}>🤺</div>
+                      <div style={{fontSize:10,color:amP2?'#fff':'rgba(162,155,254,.8)',fontWeight:700,whiteSpace:'nowrap',background:'rgba(0,0,0,.6)',padding:'1px 5px',borderRadius:3,transform:'scaleX(-1)'}}>{mgPlayers[p2]?.name||p2}</div>
+                    </div>}
+                  </div>
+                </div>
+                {!isMobile&&amFencer&&mgState.fnMatchStatus==='playing'&&<div style={{fontSize:10,color:'#333',flexShrink:0}}>A/D or ←/→ to advance/retreat &nbsp;•&nbsp; F to lunge &nbsp;•&nbsp; G to parry</div>}
+                {!amFencer&&mgState.fnMatchStatus==='playing'&&<div style={{fontSize:12,color:'#555',fontStyle:'italic',flexShrink:0}}>Spectating…</div>}
+              </div>
+              {(!isMobile||showPanel)&&<div style={{width:isMobile?'70vw':180,position:isMobile?'absolute':undefined,right:isMobile?0:undefined,top:isMobile?0:undefined,bottom:isMobile?0:undefined,zIndex:isMobile?20:undefined,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',flexShrink:0}}>
+                <div style={{padding:'7px 10px',fontSize:9,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)'}}>Bracket</div>
+                <FnBracketView/>
+              </div>}
+            </div>
+          );
+        })()}
+
+        {/* Active mini-game map — camera follows player (not pingpong/boxing/soccer/fencing) */}
+        {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&mgState.type!=='fencing'&&(()=>{
           // Line-of-sight for Hide & Seek (Bresenham ray — walls block vision)
           let hnsVisible = null;
           if (mgState.type === 'hide') {
