@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -3053,6 +3053,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           Object.assign(ups,{bxMatchStatus:'roundOver',bxRoundWinner:w});
         }
         Promise.all(rm).then(()=>{FB.ref('minigame/state').update(ups);bxProcessRef.current=false;}).catch(()=>{bxProcessRef.current=false;});
+      }).catch(()=>{bxProcessRef.current=false;});
     },80);
     return ()=>clearInterval(interval);
   }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, isAdmin]);
