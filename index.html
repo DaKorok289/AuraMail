@@ -2376,7 +2376,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   // Boxing host: advance 'waiting' → 'playing' after 3s; skip byes
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'boxing' || mgState.status !== 'active') return;
-    if (mgState.startedBy !== me || mgState.bxMatchStatus !== 'waiting') return;
+    if (!(isAdmin || mgState.startedBy === me) || mgState.bxMatchStatus !== 'waiting') return;
     const rounds = mgState.bxRounds; if (!rounds) return;
     const match = rounds[mgState.bxRound]?.[mgState.bxMatch];
     if (!match) return;
@@ -2393,7 +2393,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       FB.ref('minigame/state').update({bxMatchStatus:'playing',bxP1HP:BX_HP,bxP2HP:BX_HP});
     }, 3000);
     return () => clearTimeout(timer);
-  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, bxAdvanceRound]);
+  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, isAdmin, bxAdvanceRound]);
 
   // Host: ball physics game loop
   useEffect(() => {
@@ -2832,6 +2832,46 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
 
+  // Admin: run bot AI for 4 Corners
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'corners' || mgState.status !== 'active' || !isAdmin) return;
+    const map = MG_MAP_CORNERS;
+    const W = map[0].length, H = map.length;
+    // Corner zone centers: A=top-left, B=top-right, C=bot-left, D=bot-right
+    const CORNER_TARGETS = {
+      A: {x:3, y:2}, B: {x:18, y:2}, C: {x:3, y:10}, D: {x:18, y:10}
+    };
+    const botTargets = {}; // botId → {x,y} target corner position
+    const interval = setInterval(() => {
+      FB.ref('minigame/players').once('value').then(snap => {
+        const allP = snap.val() || {};
+        const bots = Object.entries(allP).filter(([,p]) => p.isBot && !p.eliminated);
+        if (!bots.length) return;
+        bots.forEach(([botId, bot]) => {
+          // Pick a new random corner target if none set or already reached
+          if (!botTargets[botId] || (Math.abs(bot.x - botTargets[botId].x) <= 1 && Math.abs(bot.y - botTargets[botId].y) <= 1)) {
+            const keys = Object.keys(CORNER_TARGETS);
+            botTargets[botId] = CORNER_TARGETS[keys[Math.floor(Math.random() * keys.length)]];
+          }
+          const tgt = botTargets[botId];
+          const dx = tgt.x > bot.x ? 1 : tgt.x < bot.x ? -1 : 0;
+          const dy = tgt.y > bot.y ? 1 : tgt.y < bot.y ? -1 : 0;
+          // Try to step toward target, fall back to other axis if blocked
+          const tryStep = (sx, sy) => {
+            if (sx === 0 && sy === 0) return false;
+            const nx = Math.round(bot.x) + sx, ny = Math.round(bot.y) + sy;
+            if (nx < 1 || nx >= W-1 || ny < 1 || ny >= H-1) return false;
+            if (map[ny][nx] === 1 || map[ny][nx] === 2) return false;
+            FB.ref('minigame/players/'+botId).update({x:nx, y:ny});
+            return true;
+          };
+          if (!tryStep(dx, 0) && !tryStep(0, dy)) tryStep(dx, dy);
+        });
+      });
+    }, 450);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.status, mgState?.type, isAdmin]);
+
   // Admin: run bot AI for pingpong
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'pingpong' || mgState.status !== 'active' || !isAdmin) return;
@@ -3012,9 +3052,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           const w=p1HP>0?match.p1:match.p2;
           Object.assign(ups,{bxMatchStatus:'roundOver',bxRoundWinner:w});
         }
-        Promise.all(rm).then(()=>FB.ref('minigame/state').update(ups));
-        bxProcessRef.current=false;
-      }).catch(()=>{bxProcessRef.current=false;});
+        Promise.all(rm).then(()=>{FB.ref('minigame/state').update(ups);bxProcessRef.current=false;}).catch(()=>{bxProcessRef.current=false;});
     },80);
     return ()=>clearInterval(interval);
   }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, isAdmin]);
@@ -3022,7 +3060,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   // Boxing host: 'roundOver' → advance bracket after 2.5s (runs on game creator only)
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'boxing' || mgState.status !== 'active') return;
-    if (mgState.startedBy !== me || mgState.bxMatchStatus !== 'roundOver') return;
+    if (!(isAdmin || mgState.startedBy === me) || mgState.bxMatchStatus !== 'roundOver') return;
     const rounds = mgState.bxRounds;
     const rnd = mgState.bxRound, mch = mgState.bxMatch;
     const winner = mgState.bxRoundWinner;
@@ -3032,12 +3070,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       bxHandleMatchWin(winner, p1HP, p2HP, JSON.parse(JSON.stringify(rounds)), rnd, mch);
     }, 2500);
     return () => clearTimeout(timer);
-  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, bxHandleMatchWin]);
+  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, isAdmin, bxHandleMatchWin]);
 
   // Fencing host: 'waiting' → 'playing' after 2.5s; skip byes
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'fencing' || mgState.status !== 'active') return;
-    if (mgState.startedBy !== me || mgState.fnMatchStatus !== 'waiting') return;
+    if (!(isAdmin || mgState.startedBy === me) || mgState.fnMatchStatus !== 'waiting') return;
     const rounds = mgState.fnRounds; if (!rounds) return;
     const match = rounds[mgState.fnRound]?.[mgState.fnMatch];
     if (!match) return;
@@ -3054,12 +3092,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       FB.ref('minigame/state').update({fnMatchStatus:'playing',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
     }, 2500);
     return () => clearTimeout(timer);
-  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.startedBy, me, fnAdvanceRound]);
+  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.startedBy, me, isAdmin, fnAdvanceRound]);
 
   // Fencing host: 'roundOver' → advance after 2.5s
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'fencing' || mgState.status !== 'active') return;
-    if (mgState.startedBy !== me || mgState.fnMatchStatus !== 'roundOver') return;
+    if (!(isAdmin || mgState.startedBy === me) || mgState.fnMatchStatus !== 'roundOver') return;
     const rounds = mgState.fnRounds;
     const rnd = mgState.fnRound, mch = mgState.fnMatch;
     const winner = mgState.fnRoundWinner;
@@ -3069,7 +3107,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       fnHandleMatchWin(winner, p1HP, p2HP, JSON.parse(JSON.stringify(rounds)), rnd, mch);
     }, 2500);
     return () => clearTimeout(timer);
-  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.startedBy, me, fnHandleMatchWin]);
+  }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.startedBy, me, isAdmin, fnHandleMatchWin]);
 
   // Fencing animation tick
   useEffect(() => {
