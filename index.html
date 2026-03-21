@@ -616,7 +616,7 @@ const MINIGAME_TYPES = [
   { id:'shooter',  name:'Shooter',         icon:'🔫', desc:'Last player standing wins! Shoot others with your bullets.',           minPlayers:2, aura:35 },
   { id:'pingpong', name:'Ping Pong',       icon:'🏓', desc:'Tournament bracket! Beat opponents 1v1 in Pong. Last one standing wins!', minPlayers:2, aura:30 },
   { id:'boxing',   name:'Boxing',          icon:'🥊', desc:'Tournament bracket! 1v1 boxing matches — punch your opponent to 0 HP. Last one standing wins!', minPlayers:2, aura:40 },
-  { id:'soccer',   name:'Soccer Shootout', icon:'⚽', desc:'One player is the goalie, everyone else takes free kicks! Pick L/C/R to shoot or save. Most goals wins!', minPlayers:2, aura:30 },
+  { id:'soccer',   name:'Soccer Shootout', icon:'⚽', desc:'One player is the goalie, everyone else takes free kicks on a real field! Aim with mouse/drag, kick to score. Most goals wins!', minPlayers:2, aura:30 },
 ];
 
 const MG_MAP_RLGL = (() => {
@@ -700,9 +700,16 @@ const BX_BLOCK_DURATION=650;
 const BX_BLOCK_CD=850;
 
 // ── Soccer constants ──────────────────────────────────────────
+const SO_W = 620, SO_H = 400;
+const SO_GOAL_W = 160, SO_GOAL_DEPTH = 38;
+const SO_GOAL_X = (SO_W - SO_GOAL_W) / 2;
+const SO_GOALIE_W = 46;
+const SO_GOALIE_SPEED = 290;
+const SO_BALL_R = 10;
+const SO_BALL_SPEED = 460;
+const SO_KICK_X = SO_W / 2, SO_KICK_Y = SO_H - 80;
 const SO_SHOTS_PER_PLAYER = 3;
-const SO_PICK_TIMEOUT = 7000;
-const SO_ZONES = ['L','C','R'];
+const SO_AIM_TIMEOUT = 7000;
 
 function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS,shooter:MG_MAP_SHOOTER}[t]||MG_MAP_TAG;}
 
@@ -2558,17 +2565,61 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     setTimeout(() => { bxBlockingRef.current = false; }, BX_BLOCK_DURATION);
   }, [me]);
 
-  // Soccer: shoot or dive pick
-  const soPick = useCallback((zone) => {
-    if (!inMGRef.current || mgStateRef.current?.type !== 'soccer' || mgStateRef.current?.soStatus !== 'picking') return;
-    const st = mgStateRef.current;
-    const amGoalie = st.soGoalie === me;
-    const currentShooter = (st.soShooters||[])[st.soShotIdx||0];
-    const amShooter = currentShooter === me;
-    if (!amGoalie && !amShooter) return;
-    if (amGoalie) { if (st.soGoaliePick) return; FB.ref('minigame/state/soGoaliePick').set(zone); }
-    else { if (st.soShooterPick) return; FB.ref('minigame/state/soShooterPick').set(zone); }
+  // Soccer refs
+  const soGoalieXRef = useRef(SO_W / 2);
+  const soGoalieDirRef = useRef(0);
+  const soGoalieWriteRef = useRef(0);
+  const soAimAngleRef = useRef(0);
+  const soAimWriteRef = useRef(0);
+  const [soTick, setSoTick] = useState(0);
+
+  // Soccer: kick the ball
+  const soKick = useCallback(() => {
+    if (!inMGRef.current || mgStateRef.current?.type !== 'soccer' || mgStateRef.current?.soStatus !== 'aiming') return;
+    const currentShooter = (mgStateRef.current.soShooters||[])[mgStateRef.current.soShotIdx||0];
+    if (currentShooter !== me) return;
+    const angle = soAimAngleRef.current;
+    const vx = Math.sin(angle) * SO_BALL_SPEED;
+    const vy = -Math.cos(angle) * SO_BALL_SPEED;
+    FB.ref('minigame/state').update({soBall:{x:SO_KICK_X,y:SO_KICK_Y,vx,vy,ts:Date.now()},soStatus:'kicked'});
   }, [me]);
+
+  // Soccer goalie RAF loop
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'soccer' || mgState?.status !== 'active') return;
+    if (mgState.soGoalie !== me) return;
+    if (mgState.soStatus !== 'aiming' && mgState.soStatus !== 'kicked') return;
+    soGoalieXRef.current = mgState.soGoalieX ?? SO_W/2;
+    let last = Date.now(), rafId;
+    const loop = () => {
+      const now = Date.now(), dt = Math.min((now-last)/1000,0.05); last=now;
+      const minX = SO_GOAL_X + SO_GOALIE_W/2;
+      const maxX = SO_GOAL_X + SO_GOAL_W - SO_GOALIE_W/2;
+      soGoalieXRef.current = Math.max(minX, Math.min(maxX, soGoalieXRef.current + soGoalieDirRef.current*SO_GOALIE_SPEED*dt));
+      if(now-soGoalieWriteRef.current>33){soGoalieWriteRef.current=now;FB.ref('minigame/state/soGoalieX').set(soGoalieXRef.current);}
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [inMG, mgState?.type, mgState?.status, mgState?.soStatus, mgState?.soGoalie, me]);
+
+  // Soccer animation tick
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'soccer' || mgState?.status !== 'active') return;
+    const id = setInterval(()=>setSoTick(t=>t+1),33);
+    return ()=>clearInterval(id);
+  }, [inMG, mgState?.type, mgState?.status]);
+
+  // Soccer keyboard: arrow keys for goalie, Space to kick
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'soccer') return;
+    const keys={};
+    const upd=()=>{soGoalieDirRef.current=(keys['ArrowLeft']||keys['a'])?-1:(keys['ArrowRight']||keys['d'])?1:0;};
+    const onDown=e=>{keys[e.key]=true;upd();if(e.code==='Space'&&!e.repeat){e.preventDefault();soKick();}};
+    const onUp=e=>{keys[e.key]=false;upd();};
+    window.addEventListener('keydown',onDown);window.addEventListener('keyup',onUp);
+    return()=>{window.removeEventListener('keydown',onDown);window.removeEventListener('keyup',onUp);};
+  }, [inMG, mgState?.type, soKick]);
 
   // Boxing keyboard: J=Jab, K=Cross, L=Uppercut, B=Block
   useEffect(() => {
@@ -2694,49 +2745,72 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => clearTimeout(timer);
   }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, bxHandleMatchWin]);
 
-  // Admin: process soccer picks every 100ms
+  // Admin: soccer aim timeout → auto-kick
   useEffect(() => {
-    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.soStatus !== 'picking' || !isAdmin) return;
+    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.soStatus !== 'aiming' || !isAdmin) return;
     const interval = setInterval(() => {
       FB.ref('minigame/state').once('value').then(snap => {
         const st = snap.val();
-        if (!st || st.type !== 'soccer' || st.soStatus !== 'picking') return;
-        const bothPicked = st.soShooterPick && st.soGoaliePick;
-        const timedOut = Date.now() - (st.soPickTs||0) > SO_PICK_TIMEOUT;
-        if (!bothPicked && !timedOut) return;
-        const sPick = st.soShooterPick || SO_ZONES[Math.floor(Math.random()*3)];
-        const gPick = st.soGoaliePick || SO_ZONES[Math.floor(Math.random()*3)];
-        const goal = sPick !== gPick;
-        const shooter = (st.soShooters||[])[st.soShotIdx||0];
-        const newScores = {...(st.soScores||{})};
-        if (goal && shooter) newScores[shooter] = (newScores[shooter]||0) + 1;
-        const newSaves = goal ? (st.soSaves||0) : (st.soSaves||0) + 1;
-        FB.ref('minigame/state').update({soShooterPick:sPick, soGoaliePick:gPick, soGoal:goal, soStatus:'reveal', soScores:newScores, soSaves:newSaves});
+        if (!st || st.soStatus !== 'aiming') return;
+        if (Date.now() - (st.soAimTs||0) < SO_AIM_TIMEOUT) return;
+        const angle = (Math.random()-0.5)*1.0;
+        const vx = Math.sin(angle)*SO_BALL_SPEED, vy = -Math.cos(angle)*SO_BALL_SPEED;
+        FB.ref('minigame/state').update({soBall:{x:SO_KICK_X,y:SO_KICK_Y,vx,vy,ts:Date.now()},soStatus:'kicked'});
       });
-    }, 100);
+    }, 500);
     return () => clearInterval(interval);
   }, [inMG, mgState?.type, mgState?.soStatus, isAdmin]);
 
-  // Host: soccer 'reveal' → next shot or end
+  // Admin: soccer ball physics — detect goal/save/miss
   useEffect(() => {
-    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.soStatus !== 'reveal') return;
+    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.soStatus !== 'kicked' || !isAdmin) return;
+    const interval = setInterval(() => {
+      FB.ref('minigame/state').once('value').then(snap => {
+        const st = snap.val();
+        if (!st || st.soStatus !== 'kicked' || !st.soBall) return;
+        const {x,y,vx,vy,ts} = st.soBall;
+        const el = (Date.now()-ts)/1000;
+        const bx = x+vx*el, by = y+vy*el;
+        if (by > SO_KICK_Y+20 || el > 4) {
+          // Ball went backwards or timeout — miss
+          FB.ref('minigame/state').update({soResult:'miss',soStatus:'result'});
+          return;
+        }
+        if (by > SO_GOAL_DEPTH) return; // still in flight
+        const inGoal = bx >= SO_GOAL_X && bx <= SO_GOAL_X + SO_GOAL_W;
+        const goalieX = st.soGoalieX ?? SO_W/2;
+        const saved = inGoal && Math.abs(bx - goalieX) < (SO_GOALIE_W/2 + SO_BALL_R + 4);
+        let result = !inGoal ? 'miss' : saved ? 'save' : 'goal';
+        const shooter = (st.soShooters||[])[st.soShotIdx||0];
+        const newScores = {...(st.soScores||{})};
+        if (result==='goal' && shooter) newScores[shooter]=(newScores[shooter]||0)+1;
+        const newSaves = result==='save' ? (st.soSaves||0)+1 : (st.soSaves||0);
+        FB.ref('minigame/state').update({soResult:result,soStatus:'result',soScores:newScores,soSaves:newSaves});
+      });
+    }, 80);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.type, mgState?.soStatus, isAdmin]);
+
+  // Host: soccer 'result' → next shot or end
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'soccer' || mgState.soStatus !== 'result') return;
     if (mgState.startedBy !== me) return;
     const timer = setTimeout(() => {
       FB.ref('minigame/state').once('value').then(snap => {
         const st = snap.val();
-        if (!st || st.type !== 'soccer' || st.soStatus !== 'reveal') return;
-        const nextIdx = (st.soShotIdx||0) + 1;
+        if (!st || st.soStatus !== 'result') return;
+        const nextIdx = (st.soShotIdx||0)+1;
         const total = (st.soShooters||[]).length;
         if (nextIdx >= total) {
-          const scores = st.soScores || {};
-          const maxGoals = Math.max(0, ...Object.values(scores));
-          const winner = maxGoals === 0 ? st.soGoalie : Object.entries(scores).sort((a,b)=>b[1]-a[1])[0]?.[0] || null;
-          FB.ref('minigame/state').update({soShotIdx:nextIdx, soStatus:'ended', status:'ended', winner, type:'soccer'});
+          const scores = st.soScores||{};
+          const maxGoals = Math.max(0,...Object.values(scores));
+          const winner = maxGoals===0 ? st.soGoalie : Object.entries(scores).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+          FB.ref('minigame/state').update({soStatus:'ended',status:'ended',winner,type:'soccer'});
         } else {
-          FB.ref('minigame/state').update({soShotIdx:nextIdx, soStatus:'picking', soPickTs:Date.now(), soShooterPick:null, soGoaliePick:null, soGoal:null});
+          FB.ref('minigame/state').update({soShotIdx:nextIdx,soStatus:'aiming',soAimTs:Date.now(),soBall:null,soResult:null,soAimAngle:0,soGoalieX:SO_W/2});
         }
       });
-    }, 2500);
+    }, 2800);
     return () => clearTimeout(timer);
   }, [inMG, mgState?.type, mgState?.soStatus, mgState?.startedBy, me]);
 
@@ -2862,19 +2936,19 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       const allP = [...new Set([...pList, me])];
       const goalie = allP[Math.floor(Math.random() * allP.length)];
       const shooters = allP.filter(p => p !== goalie);
-      // Each shooter gets SO_SHOTS_PER_PLAYER shots, sequential per player
       const shootOrder = shooters.flatMap(s => Array(SO_SHOTS_PER_PLAYER).fill(s));
       const initScores = Object.fromEntries(shooters.map(s => [s, 0]));
       updates['minigame/state/soGoalie'] = goalie;
       updates['minigame/state/soShooters'] = shootOrder;
       updates['minigame/state/soShotIdx'] = 0;
-      updates['minigame/state/soStatus'] = 'picking';
-      updates['minigame/state/soPickTs'] = Date.now();
+      updates['minigame/state/soStatus'] = 'aiming';
+      updates['minigame/state/soAimTs'] = Date.now();
+      updates['minigame/state/soGoalieX'] = SO_W / 2;
+      updates['minigame/state/soAimAngle'] = 0;
+      updates['minigame/state/soBall'] = null;
+      updates['minigame/state/soResult'] = null;
       updates['minigame/state/soScores'] = initScores;
       updates['minigame/state/soSaves'] = 0;
-      updates['minigame/state/soShooterPick'] = null;
-      updates['minigame/state/soGoaliePick'] = null;
-      updates['minigame/state/soGoal'] = null;
     }
     FB.ref().update(updates);
   }, [mgPlayers, mgState, me]);
@@ -3143,22 +3217,23 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             </button>
           </>);
         })()}
-        {inMG&&mgState?.type==='soccer'&&mgState?.soStatus==='picking'&&(()=>{
+        {inMG&&mgState?.type==='soccer'&&(mgState?.soStatus==='aiming'||mgState?.soStatus==='kicked')&&(()=>{
           const amGoalie=mgState.soGoalie===me;
-          const currentShooter=(mgState.soShooters||[])[mgState.soShotIdx||0];
-          const amShooter=currentShooter===me;
+          const amShooter=(mgState.soShooters||[])[mgState.soShotIdx||0]===me;
           if(!amGoalie&&!amShooter) return null;
-          const alreadyPicked=amGoalie?!!mgState.soGoaliePick:!!mgState.soShooterPick;
-          const icons={L:'⬅️',C:'⬆️',R:'➡️'};
-          const labels={L:'Left',C:'Center',R:'Right'};
+          const btnBase={height:52,minWidth:52,padding:'0 8px',borderRadius:10,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,fontSize:20,transition:'all .1s'};
           return(<>
-            {SO_ZONES.map(zone=>(
-              <button key={zone} onPointerDown={e=>{e.preventDefault();soPick(zone);}}
-                style={{height:52,minWidth:52,padding:'0 6px',borderRadius:10,border:`1px solid ${alreadyPicked?'rgba(255,255,255,.05)':'rgba(253,203,110,.3)'}`,background:alreadyPicked?'rgba(255,255,255,.03)':'rgba(253,203,110,.1)',color:alreadyPicked?'#555':'#fdcb6e',fontSize:20,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,transition:'all .1s'}}>
-                <span>{icons[zone]}</span>
-                <span style={{fontSize:7,fontWeight:700,letterSpacing:.3}}>{labels[zone]}</span>
+            {amGoalie&&<>
+              <button onPointerDown={e=>{e.preventDefault();soGoalieDirRef.current=-1;}} onPointerUp={()=>{soGoalieDirRef.current=0;}} onPointerLeave={()=>{soGoalieDirRef.current=0;}} style={{...btnBase,border:'1px solid rgba(116,185,255,.3)',background:'rgba(116,185,255,.12)',color:'#74b9ff'}}>
+                <span>◀</span><span style={{fontSize:7,fontWeight:700}}>Left</span>
               </button>
-            ))}
+              <button onPointerDown={e=>{e.preventDefault();soGoalieDirRef.current=1;}} onPointerUp={()=>{soGoalieDirRef.current=0;}} onPointerLeave={()=>{soGoalieDirRef.current=0;}} style={{...btnBase,border:'1px solid rgba(116,185,255,.3)',background:'rgba(116,185,255,.12)',color:'#74b9ff'}}>
+                <span>▶</span><span style={{fontSize:7,fontWeight:700}}>Right</span>
+              </button>
+            </>}
+            {amShooter&&mgState.soStatus==='aiming'&&<button onPointerDown={e=>{e.preventDefault();soKick();}} style={{...btnBase,border:'1px solid rgba(67,181,129,.4)',background:'rgba(67,181,129,.18)',color:'#43b581',minWidth:70,fontSize:22}}>
+              <span>⚽</span><span style={{fontSize:8,fontWeight:800}}>Kick!</span>
+            </button>}
           </>);
         })()}
         {isMobile&&<button onClick={()=>setShowPanel(p=>!p)} style={{width:40,height:40,borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.04)',color:'#aaa',cursor:'pointer',display:'flex',flexDirection:'column',gap:4,alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -3328,9 +3403,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           {mgState.type==='soccer'&&isActive&&(()=>{
             const shooters=[...new Set(mgState.soShooters||[])];
             const scores=mgState.soScores||{};
+            const soIdx=mgState.soShotIdx||0, soTotal=(mgState.soShooters||[]).length;
             return <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(67,181,129,.12)',border:'1px solid rgba(67,181,129,.3)',fontSize:12,fontWeight:800,color:'#43b581'}}>
-              ⚽ {mgPlayers[mgState.soGoalie]?.name||mgState.soGoalie} 🧤 {(mgState.soSaves||0)} saves
-              {shooters.map(u=><span key={u} style={{marginLeft:6,color:'#fdcb6e'}}>{mgPlayers[u]?.name||u} {scores[u]||0}G</span>)}
+              ⚽ Shot {Math.min(soIdx+1,soTotal)}/{soTotal}
+              {shooters.map(u=><span key={u} style={{marginLeft:6,color:'#fdcb6e'}}>{mgPlayers[u]?.name||u}:{scores[u]||0}</span>)}
+              <span style={{marginLeft:6,color:'#74b9ff'}}>🧤{mgState.soSaves||0}</span>
             </div>;
           })()}
 
@@ -3615,89 +3692,110 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
 
         {/* Soccer arena */}
         {isActive&&mgState.type==='soccer'&&(()=>{
-          const goalie = mgState.soGoalie;
-          const shooters = mgState.soShooters||[];
-          const shotIdx = mgState.soShotIdx||0;
-          const currentShooter = shooters[shotIdx];
-          const amGoalie = goalie===me;
-          const amShooter = currentShooter===me;
-          const soStatus = mgState.soStatus; // 'picking'|'reveal'|'ended'
-          const scores = mgState.soScores||{};
-          const saves = mgState.soSaves||0;
-          const sPick = mgState.soShooterPick, gPick = mgState.soGoaliePick, soGoal = mgState.soGoal;
-          const showReveal = soStatus==='reveal';
-          // Unique shooters list for scoreboard
-          const uniqueShooters = [...new Set(shooters)];
-
-          const zoneColor = (zone) => {
-            if (!showReveal) return 'rgba(255,255,255,.04)';
-            const shooterHere = sPick===zone, goalieHere = gPick===zone;
-            if (shooterHere && goalieHere) return 'rgba(255,80,80,.25)'; // saved!
-            if (shooterHere && soGoal) return 'rgba(253,203,110,.25)'; // goal!
-            if (goalieHere) return 'rgba(116,185,255,.15)'; // goalie dove here
-            return 'rgba(255,255,255,.04)';
+          const goalie=mgState.soGoalie, shooters=mgState.soShooters||[];
+          const shotIdx=mgState.soShotIdx||0, currentShooter=shooters[shotIdx];
+          const amGoalie=goalie===me, amShooter=currentShooter===me;
+          const soStatus=mgState.soStatus, scores=mgState.soScores||{}, saves=mgState.soSaves||0;
+          const uniqueShooters=[...new Set(shooters)];
+          void soTick;
+          const soScale=Math.min(1,(window.innerWidth-(isMobile?8:24))/SO_W);
+          const scaledW=SO_W*soScale, scaledH=SO_H*soScale;
+          // Goalie X
+          const goalieX=amGoalie?soGoalieXRef.current:(mgState.soGoalieX??SO_W/2);
+          // Ball interpolation
+          let bx=SO_KICK_X,by=SO_KICK_Y,ballVis=false;
+          if(mgState.soBall&&(soStatus==='kicked'||soStatus==='result')){
+            const {x,y,vx,vy,ts}=mgState.soBall;
+            const el=Math.min((Date.now()-ts)/1000,3);
+            bx=x+vx*el; by=Math.max(-SO_BALL_R,y+vy*el);
+            ballVis=true;
+          } else if(soStatus==='aiming'){bx=SO_KICK_X;by=SO_KICK_Y;ballVis=true;}
+          // Aim angle
+          const aimAngle=amShooter?soAimAngleRef.current:(mgState.soAimAngle??0);
+          const aimLen=75;
+          const aimDx=Math.sin(aimAngle)*aimLen, aimDy=-Math.cos(aimAngle)*aimLen;
+          // Field touch handler
+          const onFieldPointer=e=>{
+            if(!amShooter||soStatus!=='aiming') return;
+            const rect=e.currentTarget.getBoundingClientRect();
+            const px=(e.touches?.[0]?.clientX??e.clientX)-rect.left;
+            const py=(e.touches?.[0]?.clientY??e.clientY)-rect.top;
+            const cx=px/soScale, cy=py/soScale;
+            const angle=Math.atan2(cx-SO_KICK_X,SO_KICK_Y-cy);
+            soAimAngleRef.current=Math.max(-Math.PI*0.45,Math.min(Math.PI*0.45,angle));
+            const now=Date.now();
+            if(now-soAimWriteRef.current>50){soAimWriteRef.current=now;FB.ref('minigame/state/soAimAngle').set(soAimAngleRef.current);}
           };
-
-          return (
-            <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#030d08',overflow:'hidden',gap:14,padding:'16px 12px'}}>
-              {/* Status header */}
-              <div style={{fontSize:13,color:'#aaa',fontWeight:700,textAlign:'center'}}>
-                {soStatus==='picking'&&<>
-                  <span style={{color:'#fdcb6e'}}>{mgPlayers[currentShooter]?.name||currentShooter}</span>
-                  <span style={{color:'#666'}}> is shooting</span>
-                  {amShooter&&<span style={{color:'#4fc3f7'}}> — pick where to shoot!</span>}
-                  {amGoalie&&<span style={{color:'#fd79a8'}}> — pick where to dive!</span>}
-                </>}
-                {soStatus==='reveal'&&<>
-                  {soGoal
-                    ? <span style={{color:'#fdcb6e',fontSize:18}}>⚽ GOAL! {mgPlayers[currentShooter]?.name||currentShooter} scores!</span>
-                    : <span style={{color:'#4fc3f7',fontSize:18}}>🧤 SAVED! {mgPlayers[goalie]?.name||goalie} stops it!</span>}
-                </>}
-                {soStatus==='ended'&&<span style={{color:'#43b581'}}>Game over!</span>}
+          return(
+            <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#0a150a',overflow:'hidden',gap:8,padding:'8px 4px'}}>
+              {/* Status */}
+              <div style={{fontSize:13,color:'#aaa',fontWeight:700,textAlign:'center',flexShrink:0,minHeight:22}}>
+                {soStatus==='aiming'&&<><span style={{color:'#fdcb6e'}}>{mgPlayers[currentShooter]?.name||currentShooter}</span>{amShooter&&<span style={{color:'#4fc3f7'}}> — move mouse / drag to aim, Space/button to kick!</span>}{amGoalie&&<span style={{color:'#74b9ff'}}> — move with ←→ to get ready!</span>}{!amShooter&&!amGoalie&&<span style={{color:'#555'}}> is taking a free kick…</span>}</>}
+                {soStatus==='kicked'&&<span style={{color:'#fff',fontSize:15}}>⚽ Ball in motion!</span>}
+                {soStatus==='result'&&<span style={{color:mgState.soResult==='goal'?'#fdcb6e':mgState.soResult==='save'?'#74b9ff':'#888',fontSize:18,fontWeight:900}}>{mgState.soResult==='goal'?'⚽ GOAL!':mgState.soResult==='save'?'🧤 SAVED!':'😮 Miss!'}</span>}
               </div>
-
-              {/* Goal visual */}
-              <div style={{display:'flex',alignItems:'stretch',border:'4px solid rgba(255,255,255,.3)',borderRadius:6,overflow:'hidden',width:Math.min(320,window.innerWidth-40),height:150,flexShrink:0,background:'rgba(0,0,0,.5)',position:'relative'}}>
-                {/* Goal net lines */}
-                <div style={{position:'absolute',inset:0,backgroundImage:'repeating-linear-gradient(0deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 20px),repeating-linear-gradient(90deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 20px)',pointerEvents:'none'}}/>
-                {SO_ZONES.map(zone=>(
-                  <div key={zone} style={{flex:1,borderLeft:zone==='L'?'none':'1px solid rgba(255,255,255,.15)',display:'flex',alignItems:'center',justifyContent:'center',background:zoneColor(zone),position:'relative',transition:'background .3s'}}>
-                    <span style={{fontSize:11,fontWeight:700,color:'rgba(255,255,255,.2)'}}>{zone}</span>
-                    {showReveal&&sPick===zone&&<div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:40,lineHeight:1}}>⚽</div>}
-                    {showReveal&&gPick===zone&&<div style={{position:'absolute',bottom:8,left:'50%',transform:'translateX(-50%)',fontSize:28,lineHeight:1}}>🧤</div>}
-                    {/* My pick indicator (before reveal, only to me) */}
-                    {!showReveal&&amGoalie&&mgState.soGoaliePick===zone&&<div style={{position:'absolute',bottom:4,left:'50%',transform:'translateX(-50%)',fontSize:22}}>🧤</div>}
-                    {!showReveal&&amShooter&&mgState.soShooterPick===zone&&<div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:30}}>⚽</div>}
+              {/* Field wrapper */}
+              <div style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0,cursor:amShooter&&soStatus==='aiming'?'crosshair':'default'}}
+                onMouseMove={onFieldPointer}
+                onTouchMove={e=>{e.preventDefault();onFieldPointer(e);}}
+                onTouchStart={e=>{e.preventDefault();onFieldPointer(e);}}
+              >
+                {/* Inner field at full resolution, scaled via transform */}
+                <div style={{position:'absolute',top:0,left:0,width:SO_W,height:SO_H,transform:`scale(${soScale})`,transformOrigin:'top left',
+                  background:'linear-gradient(170deg,#2d5a1b,#3a7023)',border:'3px solid rgba(255,255,255,.25)',borderRadius:8,overflow:'hidden',pointerEvents:'none'}}>
+                  {/* Field markings */}
+                  <div style={{position:'absolute',left:0,right:0,top:SO_H/2,height:2,background:'rgba(255,255,255,.22)'}}/>
+                  <div style={{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',width:110,height:110,borderRadius:'50%',border:'2px solid rgba(255,255,255,.22)',pointerEvents:'none'}}/>
+                  <div style={{position:'absolute',left:SO_GOAL_X-50,width:SO_GOAL_W+100,top:0,height:SO_GOAL_DEPTH+55,border:'2px solid rgba(255,255,255,.28)',borderTop:'none',pointerEvents:'none'}}/>
+                  <div style={{position:'absolute',left:SO_GOAL_X-25,width:SO_GOAL_W+50,top:0,height:SO_GOAL_DEPTH+25,border:'2px solid rgba(255,255,255,.22)',borderTop:'none',pointerEvents:'none'}}/>
+                  {/* Penalty arc */}
+                  <div style={{position:'absolute',left:'50%',top:SO_GOAL_DEPTH+80,transform:'translateX(-50%)',width:120,height:55,borderRadius:'0 0 60px 60px',border:'2px solid rgba(255,255,255,.2)',borderTop:'none',pointerEvents:'none'}}/>
+                  {/* Kick spot */}
+                  <div style={{position:'absolute',left:SO_KICK_X-5,top:SO_KICK_Y-5,width:10,height:10,borderRadius:'50%',background:'rgba(255,255,255,.5)',pointerEvents:'none'}}/>
+                  {/* Goal mouth */}
+                  <div style={{position:'absolute',left:SO_GOAL_X,width:SO_GOAL_W,top:0,height:SO_GOAL_DEPTH,background:'rgba(255,255,255,.12)',pointerEvents:'none'}}/>
+                  {/* Goal posts */}
+                  <div style={{position:'absolute',left:SO_GOAL_X-10,top:0,width:10,height:SO_GOAL_DEPTH+6,background:'#fff',borderRadius:'0 0 0 4px',pointerEvents:'none'}}/>
+                  <div style={{position:'absolute',left:SO_GOAL_X+SO_GOAL_W,top:0,width:10,height:SO_GOAL_DEPTH+6,background:'#fff',borderRadius:'0 0 4px 0',pointerEvents:'none'}}/>
+                  <div style={{position:'absolute',left:SO_GOAL_X-10,top:0,width:SO_GOAL_W+20,height:8,background:'#fff',pointerEvents:'none'}}/>
+                  {/* Aim arrow (only shooter sees it during aiming) */}
+                  {soStatus==='aiming'&&(()=>{
+                    const lineAngle=Math.atan2(aimDy,aimDx)*180/Math.PI;
+                    return <div style={{position:'absolute',left:SO_KICK_X,top:SO_KICK_Y,width:aimLen,height:3,background:'linear-gradient(90deg,rgba(253,203,110,.9),rgba(253,203,110,0))',transformOrigin:'0 50%',transform:`rotate(${lineAngle}deg)`,pointerEvents:'none',borderRadius:2}}/>;
+                  })()}
+                  {/* Arrowhead */}
+                  {soStatus==='aiming'&&<div style={{position:'absolute',left:SO_KICK_X+aimDx-5,top:SO_KICK_Y+aimDy-5,width:10,height:10,borderRadius:'50%',background:'rgba(253,203,110,.8)',pointerEvents:'none'}}/>}
+                  {/* Ball */}
+                  {ballVis&&<div style={{position:'absolute',left:bx-SO_BALL_R,top:by-SO_BALL_R,width:SO_BALL_R*2,height:SO_BALL_R*2,fontSize:SO_BALL_R*2-2,lineHeight:1,zIndex:6,pointerEvents:'none',filter:soStatus==='kicked'?'drop-shadow(0 0 6px rgba(255,255,255,.7))':'none'}}>⚽</div>}
+                  {/* Goalie */}
+                  <div style={{position:'absolute',left:goalieX-SO_GOALIE_W/2,top:SO_GOAL_DEPTH+2,width:SO_GOALIE_W,height:34,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,zIndex:5,transition:amGoalie?'none':'left .07s',filter:'drop-shadow(0 2px 4px rgba(0,0,0,.6))'}}>🧤</div>
+                  {/* Goalie name */}
+                  <div style={{position:'absolute',left:goalieX-40,top:SO_GOAL_DEPTH+38,width:80,textAlign:'center',fontSize:9,color:'rgba(255,255,255,.7)',fontWeight:700,pointerEvents:'none'}}>{mgPlayers[goalie]?.name||goalie}{amGoalie?' (you)':''}</div>
+                  {/* Shooter avatar */}
+                  {(soStatus==='aiming'||soStatus==='kicked')&&<div style={{position:'absolute',left:SO_KICK_X-20,top:SO_KICK_Y+SO_BALL_R*2+4,width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,zIndex:4,filter:'drop-shadow(0 2px 4px rgba(0,0,0,.6))'}}>
+                    {mgPlayers[currentShooter]?.avatar||'🧑'}
+                  </div>}
+                  {/* Shooter name */}
+                  {(soStatus==='aiming'||soStatus==='kicked')&&<div style={{position:'absolute',left:SO_KICK_X-40,top:SO_KICK_Y+SO_BALL_R*2+46,width:80,textAlign:'center',fontSize:9,color:'rgba(255,255,255,.7)',fontWeight:700,pointerEvents:'none'}}>{mgPlayers[currentShooter]?.name||currentShooter}{amShooter?' (you)':''}</div>}
+                  {/* Queued shooters */}
+                  {uniqueShooters.filter(u=>u!==currentShooter).map((u,i)=>(
+                    <div key={u} style={{position:'absolute',left:18+i*38,bottom:14,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,opacity:.55,filter:'drop-shadow(0 1px 2px rgba(0,0,0,.5))'}}>
+                      {mgPlayers[u]?.avatar||'🧑'}
+                    </div>
+                  ))}
+                  {/* Score overlay */}
+                  <div style={{position:'absolute',top:SO_GOAL_DEPTH+8,left:0,right:0,display:'flex',justifyContent:'center',gap:10,pointerEvents:'none'}}>
+                    {uniqueShooters.map(u=><span key={u} style={{fontSize:10,color:'rgba(255,220,100,.9)',fontWeight:800,background:'rgba(0,0,0,.55)',padding:'1px 7px',borderRadius:4}}>{mgPlayers[u]?.name||u}: {scores[u]||0}G</span>)}
+                    <span style={{fontSize:10,color:'rgba(116,185,255,.9)',fontWeight:800,background:'rgba(0,0,0,.55)',padding:'1px 7px',borderRadius:4}}>🧤 {saves}</span>
                   </div>
-                ))}
-              </div>
-
-              {/* Shot counter */}
-              <div style={{display:'flex',gap:4,alignItems:'center'}}>
-                {shooters.map((s,i)=>{
-                  const done = i<shotIdx||(i===shotIdx&&soStatus==='reveal');
-                  const active = i===shotIdx&&soStatus==='picking';
-                  return <div key={i} style={{width:10,height:10,borderRadius:'50%',background:done?'rgba(253,203,110,.6)':'rgba(255,255,255,.12)',border:active?'2px solid #4fc3f7':'2px solid transparent',transition:'all .3s'}}/>;
-                })}
-              </div>
-
-              {/* Scoreboard */}
-              <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
-                {uniqueShooters.map(u=>(
-                  <div key={u} style={{padding:'6px 12px',borderRadius:8,background:'rgba(253,203,110,.08)',border:'1px solid rgba(253,203,110,.2)',textAlign:'center',minWidth:80}}>
-                    <div style={{fontSize:10,color:u===me?'#fff':'#aaa',fontWeight:700,marginBottom:3}}>{mgPlayers[u]?.name||u}{u===me?' (you)':''}</div>
-                    <div style={{fontSize:22,fontWeight:900,color:'#fdcb6e'}}>{scores[u]||0}</div>
-                    <div style={{fontSize:9,color:'#555'}}>goals</div>
+                  {/* Shot dots */}
+                  <div style={{position:'absolute',bottom:6,left:0,right:0,display:'flex',justifyContent:'center',gap:4,pointerEvents:'none'}}>
+                    {shooters.map((s,i)=><div key={i} style={{width:8,height:8,borderRadius:'50%',background:i<shotIdx?'rgba(253,203,110,.65)':i===shotIdx?'#4fc3f7':'rgba(255,255,255,.18)',border:i===shotIdx?'1px solid #4fc3f7':'none'}}/>)}
                   </div>
-                ))}
-                <div style={{padding:'6px 12px',borderRadius:8,background:'rgba(116,185,255,.08)',border:'1px solid rgba(116,185,255,.2)',textAlign:'center',minWidth:80}}>
-                  <div style={{fontSize:10,color:goalie===me?'#fff':'#aaa',fontWeight:700,marginBottom:3}}>🧤 {mgPlayers[goalie]?.name||goalie}{goalie===me?' (you)':''}</div>
-                  <div style={{fontSize:22,fontWeight:900,color:'#74b9ff'}}>{saves}</div>
-                  <div style={{fontSize:9,color:'#555'}}>saves</div>
                 </div>
               </div>
-
-              {soStatus==='picking'&&!amGoalie&&!amShooter&&<div style={{fontSize:12,color:'#444',fontStyle:'italic'}}>Spectating…</div>}
+              {/* Instructions */}
+              {!isMobile&&<div style={{fontSize:10,color:'#333',flexShrink:0}}>{amGoalie?'← → or A D to move':'Move mouse over field to aim, Space to kick'}</div>}
             </div>
           );
         })()}
