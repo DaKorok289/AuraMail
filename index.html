@@ -2595,9 +2595,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const isP1 = match.p1 === me;
     const myX = isP1 ? (st.fnP1X ?? FN_P1_START) : (st.fnP2X ?? FN_P2_START);
     const oppX = isP1 ? (st.fnP2X ?? FN_P2_START) : (st.fnP1X ?? FN_P1_START);
-    // forward = toward opponent, backward = away
-    const dir = isP1 ? 1 : -1;
-    const delta = forward ? dir * FN_STEP : -dir * FN_STEP;
+    // forward=true means move RIGHT (increase X), false means move LEFT — same for both players so controls feel intuitive
+    const delta = forward ? FN_STEP : -FN_STEP;
     const newX = Math.max(FN_MIN_X, Math.min(FN_MAX_X, myX + delta));
     // Don't overlap opponent
     const minGap = 32;
@@ -2685,6 +2684,29 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     window.addEventListener('keydown',onDown);window.addEventListener('keyup',onUp);
     return()=>{window.removeEventListener('keydown',onDown);window.removeEventListener('keyup',onUp);};
   }, [inMG, mgState?.type, soKick]);
+
+  // Soccer: native non-passive touch for aim arrow on phones/tablets
+  useEffect(() => {
+    if (!inMG || mgState?.type !== 'soccer' || mgState?.soStatus !== 'aiming') return;
+    const currentShooter = (mgState?.soShooters||[])[mgState?.soShotIdx||0];
+    if (currentShooter !== me) return;
+    const onTouch = e => {
+      const field = document.querySelector('[data-so-field]');
+      if (!field || !e.touches?.[0]) return;
+      e.preventDefault();
+      const rect = field.getBoundingClientRect();
+      const sc = rect.width / SO_W;
+      const px = (e.touches[0].clientX - rect.left) / sc;
+      const py = (e.touches[0].clientY - rect.top) / sc;
+      const angle = Math.atan2(px - SO_KICK_X, SO_KICK_Y - py);
+      soAimAngleRef.current = Math.max(-Math.PI*0.45, Math.min(Math.PI*0.45, angle));
+      const now = Date.now();
+      if (now - soAimWriteRef.current > 50) { soAimWriteRef.current = now; FB.ref('minigame/state/soAimAngle').set(soAimAngleRef.current); }
+    };
+    document.addEventListener('touchmove', onTouch, {passive:false});
+    document.addEventListener('touchstart', onTouch, {passive:false});
+    return () => { document.removeEventListener('touchmove', onTouch); document.removeEventListener('touchstart', onTouch); };
+  }, [inMG, mgState?.type, mgState?.soStatus, mgState?.soShotIdx, me]);
 
   // Boxing keyboard: J=Jab, K=Cross, L=Uppercut, B=Block
   useEffect(() => {
@@ -3503,7 +3525,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           const btnS={height:52,minWidth:46,padding:'0 7px',borderRadius:10,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,fontSize:17,transition:'all .1s'};
           return(<>
             <button onPointerDown={e=>{e.preventDefault();fnStep(false);}} style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
-              <span>◀</span><span style={{fontSize:7,fontWeight:700}}>Retreat</span>
+              <span>◀</span><span style={{fontSize:7,fontWeight:700}}>Left</span>
             </button>
             <button onPointerDown={e=>{e.preventDefault();fnLunge();}} style={{...btnS,border:`1px solid ${lCD||!inRange2?'rgba(255,255,255,.05)':'rgba(253,121,168,.4)'}`,background:lCD||!inRange2?'rgba(255,255,255,.03)':'rgba(253,121,168,.15)',color:lCD||!inRange2?'#444':'#fd79a8'}}>
               <span>⚔️</span><span style={{fontSize:7,fontWeight:700}}>Lunge</span>
@@ -3512,7 +3534,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               <span>🛡️</span><span style={{fontSize:7,fontWeight:700}}>Parry</span>
             </button>
             <button onPointerDown={e=>{e.preventDefault();fnStep(true);}} style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
-              <span>▶</span><span style={{fontSize:7,fontWeight:700}}>Advance</span>
+              <span>▶</span><span style={{fontSize:7,fontWeight:700}}>Right</span>
             </button>
           </>);
         })()}
@@ -4049,10 +4071,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                 {soStatus==='result'&&<span style={{color:mgState.soResult==='goal'?'#fdcb6e':mgState.soResult==='save'?'#74b9ff':'#888',fontSize:18,fontWeight:900}}>{mgState.soResult==='goal'?'⚽ GOAL!':mgState.soResult==='save'?'🧤 SAVED!':'😮 Miss!'}</span>}
               </div>
               {/* Field wrapper */}
-              <div style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0,cursor:amShooter&&soStatus==='aiming'?'crosshair':'default'}}
+              <div data-so-field="1" style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0,cursor:amShooter&&soStatus==='aiming'?'crosshair':'default'}}
                 onMouseMove={onFieldPointer}
-                onTouchMove={e=>{e.preventDefault();onFieldPointer(e);}}
-                onTouchStart={e=>{e.preventDefault();onFieldPointer(e);}}
               >
                 {/* Inner field at full resolution, scaled via transform */}
                 <div style={{position:'absolute',top:0,left:0,width:SO_W,height:SO_H,transform:`scale(${soScale})`,transformOrigin:'top left',
