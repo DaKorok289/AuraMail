@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -616,7 +616,7 @@ const MINIGAME_TYPES = [
   { id:'shooter',  name:'Shooter',         icon:'🔫', desc:'Last player standing wins! Shoot others with your bullets.',           minPlayers:2, aura:35 },
   { id:'pingpong', name:'Ping Pong',       icon:'🏓', desc:'Tournament bracket! Beat opponents 1v1 in Pong. Last one standing wins!', minPlayers:2, aura:30 },
   { id:'boxing',   name:'Boxing',          icon:'🥊', desc:'Tournament bracket! 1v1 boxing matches — punch your opponent to 0 HP. Last one standing wins!', minPlayers:2, aura:40 },
-  { id:'soccer',   name:'Soccer Shootout', icon:'⚽', desc:'One player is the goalie, everyone else takes free kicks on a real field! Aim with mouse/drag, kick to score. Most goals wins!', minPlayers:2, aura:30 },
+  { id:'soccer',   name:'Soccer Shootout', icon:'⚽', desc:'Everyone takes turns as the goalie! Aim with mouse/drag and kick to score. The player with the most goals wins!', minPlayers:2, aura:30 },
   { id:'fencing',  name:'Fencing',         icon:'🤺', desc:'Tournament bracket! Duel 1v1 on the strip — advance, retreat, lunge and parry. First to 5 touches wins!', minPlayers:2, aura:35 },
 ];
 
@@ -2785,13 +2785,12 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         const allP = snap.val() || {};
         const bots = Object.entries(allP).filter(([,p]) => p.isBot && !p.eliminated);
         if (!bots.length) return;
-        const humans = Object.entries(allP).filter(([,p]) => !p.isBot && !p.eliminated);
         const now = Date.now();
         bots.forEach(([botId, bot]) => {
           // Initialize shoot cooldown with a 2.5s grace period on first encounter
           if (botShootTs[botId] === undefined) { botShootTs[botId] = now + 2500; }
-          // Find nearest target — prefer humans, fall back to other bots when humans are gone
-          const targets = humans.length ? humans : bots.filter(([id]) => id !== botId);
+          // Find nearest target — all alive players (humans and bots) are valid targets
+          const targets = Object.entries(allP).filter(([id,p]) => !p.eliminated && id !== botId);
           if (!targets.length) return;
           let nearest = null, nearDist = Infinity;
           targets.forEach(([,h]) => {
@@ -3241,10 +3240,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         if (nextIdx >= total) {
           const scores = st.soScores||{};
           const maxGoals = Math.max(0,...Object.values(scores));
-          const winner = maxGoals===0 ? st.soGoalie : Object.entries(scores).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+          const winner = Object.entries(scores).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
           FB.ref('minigame/state').update({soStatus:'ended',status:'ended',winner,type:'soccer'});
         } else {
-          FB.ref('minigame/state').update({soShotIdx:nextIdx,soStatus:'aiming',soAimTs:Date.now(),soBall:null,soResult:null,soAimAngle:0,soGoalieX:SO_W/2});
+          const nextGoalie = (st.soGoaliePerShot||[])[nextIdx] ?? st.soGoalie;
+          FB.ref('minigame/state').update({soShotIdx:nextIdx,soGoalie:nextGoalie,soStatus:'aiming',soAimTs:Date.now(),soBall:null,soResult:null,soAimAngle:0,soGoalieX:SO_W/2});
         }
       });
     }, 2800);
@@ -3371,12 +3371,19 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     }
     if (mgState?.type === 'soccer') {
       const allP = [...new Set([...pList, me])];
-      const goalie = allP[Math.floor(Math.random() * allP.length)];
-      const shooters = allP.filter(p => p !== goalie);
-      const shootOrder = shooters.flatMap(s => Array(SO_SHOTS_PER_PLAYER).fill(s));
-      const initScores = Object.fromEntries(shooters.map(s => [s, 0]));
-      updates['minigame/state/soGoalie'] = goalie;
-      updates['minigame/state/soShooters'] = shootOrder;
+      // Rotate goalie: each player is goalie for one round, everyone else shoots once per round
+      const goalieOrder = [...allP].sort(() => Math.random() - 0.5);
+      const soShooters = [], soGoaliePerShot = [];
+      goalieOrder.forEach(goalie => {
+        allP.filter(p => p !== goalie).forEach(shooter => {
+          soShooters.push(shooter);
+          soGoaliePerShot.push(goalie);
+        });
+      });
+      const initScores = Object.fromEntries(allP.map(p => [p, 0]));
+      updates['minigame/state/soGoalie'] = goalieOrder[0];
+      updates['minigame/state/soGoaliePerShot'] = soGoaliePerShot;
+      updates['minigame/state/soShooters'] = soShooters;
       updates['minigame/state/soShotIdx'] = 0;
       updates['minigame/state/soStatus'] = 'aiming';
       updates['minigame/state/soAimTs'] = Date.now();
@@ -3960,10 +3967,16 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                 FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y});
               } else if(['corners','hide','tag'].includes(mgState?.type)){
                 const map=getMGMap(mgState.type);
-                // Spawn same way regular players do: bottom row, near horizontal center
-                const bx=Math.min(Math.max(1,Math.floor((map[0].length-2)/2)+Math.floor(Math.random()*5)-2),map[0].length-2);
                 const by=map.length-2;
-                FB.ref('minigame/players/'+botId).set({...base,x:bx,y:by,eliminated:false});
+                // Scan bottom rows for valid (non-wall, non-obstacle) spawn tiles
+                const validSpawns=[];
+                for(let sy=Math.max(1,by-2);sy<=Math.min(by,map.length-2);sy++){
+                  for(let sx=1;sx<map[0].length-1;sx++){
+                    if(map[sy][sx]!==1&&map[sy][sx]!==2) validSpawns.push({x:sx,y:sy});
+                  }
+                }
+                const sp=validSpawns[Math.floor(Math.random()*validSpawns.length)]||{x:1,y:by};
+                FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y,eliminated:false});
               } else {
                 FB.ref('minigame/players/'+botId).set(base);
               }
