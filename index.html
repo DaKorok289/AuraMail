@@ -2127,7 +2127,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     ref.on('value', snap => {
       const s = snap.val();
       setMgState(s);
-      if (s && s.status === 'ended' && !mgResult) setMgResult(s);
+      if (s && s.status === 'ended' && inMGRef.current) setMgResult(s);
     });
     return () => ref.off('value');
   }, []);
@@ -2349,11 +2349,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       // Score
       if(x<0){
         s2++; done=true;
-        if(s2>=PP_WIN_SCORE){ ppHandleMatchWin(match.p2,s1,s2,rounds,mgState.ppRound,mgState.ppMatch); }
+        if(s2>=PP_WIN_SCORE){ FB.ref('minigame/state').update({ppS2:s2,ppBall:null}); ppHandleMatchWin(match.p2,s1,s2,rounds,mgState.ppRound,mgState.ppMatch); }
         else{ resetBall(1); done=false; FB.ref('minigame/state').update({ppS2:s2,ppBall:{x,y,vx,vy,ts:now}}); }
       } else if(x>PP_W){
         s1++; done=true;
-        if(s1>=PP_WIN_SCORE){ ppHandleMatchWin(match.p1,s1,s2,rounds,mgState.ppRound,mgState.ppMatch); }
+        if(s1>=PP_WIN_SCORE){ FB.ref('minigame/state').update({ppS1:s1,ppBall:null}); ppHandleMatchWin(match.p1,s1,s2,rounds,mgState.ppRound,mgState.ppMatch); }
         else{ resetBall(-1); done=false; FB.ref('minigame/state').update({ppS1:s1,ppBall:{x,y,vx,vy,ts:now}}); }
       } else if(bounced||now-lastWrite>33){ lastWrite=now; FB.ref('minigame/state/ppBall').set({x,y,vx,vy,ts:now}); }
       if(!done) rafId=requestAnimationFrame(loop);
@@ -2468,7 +2468,17 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         const bullets = bSnap.val() || {};
         FB.ref('minigame/players').once('value').then(pSnap => {
           const allP = pSnap.val() || {};
+          // End game immediately if only 1 (or 0) alive — catches cases where last kill happened without a new bullet hit
+          const aliveAll = Object.entries(allP).filter(([,p])=>!p.eliminated);
+          if (aliveAll.length <= 1) {
+            FB.ref('minigame/state').once('value').then(st => {
+              if (st.val()?.status === 'active') FB.ref('minigame/state').update({status:'ended',winner:aliveAll[0]?.[0]||null,type:'shooter'});
+            });
+            return;
+          }
           Object.entries(bullets).forEach(([id, b]) => {
+            // Remove bullets shot by eliminated players
+            if (allP[b.owner]?.eliminated) { FB.ref('minigame/bullets/'+id).remove(); return; }
             const elapsed = (Date.now() - b.ts) / 1000;
             const dist = SHOOTER_SPEED * elapsed;
             // Walk the path to find wall hit or max distance
@@ -2483,7 +2493,6 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             Object.entries(allP).forEach(([uname, pd]) => {
               if (uname === b.owner || pd.eliminated) return;
               if (Math.round(pd.x) === bTileX && Math.round(pd.y) === bTileY) {
-                // Immunity check
                 FB.ref('minigame/bullets/'+id).remove();
                 FB.ref('minigame/players/'+b.owner+'/score').transaction(s=>(s||0)+1);
                 FB.ref('minigame/players/'+uname).update({eliminated:true});
@@ -3021,12 +3030,14 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           void ppTick; // causes re-render for smooth ball + paddle animation
           const p1PadY = amP1 ? ppLocalPaddleRef.current : (mgPlayers[p1]?.paddleY??(PP_H/2-PP_PADDLE_H/2));
           const p2PadY = amP2 ? ppLocalPaddleRef.current : (mgPlayers[p2]?.paddleY??(PP_H/2-PP_PADDLE_H/2));
-          let ballX=PP_W/2, ballY=PP_H/2;
+          let ballX=PP_W/2, ballY=PP_H/2, ballVisible=false;
           if(playing&&mgState.ppBall){
             const {x,y,vx,vy,ts}=mgState.ppBall;
             const el=(Date.now()-ts)/1000;
-            ballX=Math.max(PP_BALL_R,Math.min(PP_W-PP_BALL_R,x+vx*el));
-            ballY=Math.max(PP_BALL_R,Math.min(PP_H-PP_BALL_R,y+vy*el));
+            const bx=x+vx*el, by=y+vy*el;
+            // Only show ball while it's still in bounds (off-screen = point scored, wait for Firebase)
+            ballVisible = bx>=0 && bx<=PP_W && by>=PP_BALL_R && by<=PP_H-PP_BALL_R;
+            ballX=bx; ballY=Math.max(PP_BALL_R,Math.min(PP_H-PP_BALL_R,by));
           }
           // Bracket display helper
           const BracketView = () => (
@@ -3082,7 +3093,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                     {playing?(<>
                       <div style={{position:'absolute',left:PP_PAD_X,top:p1PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#81d4fa,#0288d1)',borderRadius:5,boxShadow:'0 0 14px rgba(79,195,247,.7)'}}/>
                       <div style={{position:'absolute',right:PP_PAD_X,top:p2PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#ef9a9a,#c62828)',borderRadius:5,boxShadow:'0 0 14px rgba(239,154,154,.7)'}}/>
-                      <div style={{position:'absolute',left:ballX-PP_BALL_R,top:ballY-PP_BALL_R,width:PP_BALL_R*2,height:PP_BALL_R*2,borderRadius:'50%',background:'radial-gradient(circle at 35% 35%,#fff 10%,#fdcb6e 50%,#e17055)',boxShadow:'0 0 14px 4px rgba(253,203,110,.8)',pointerEvents:'none'}}/>
+                      {ballVisible&&<div style={{position:'absolute',left:ballX-PP_BALL_R,top:ballY-PP_BALL_R,width:PP_BALL_R*2,height:PP_BALL_R*2,borderRadius:'50%',background:'radial-gradient(circle at 35% 35%,#fff 10%,#fdcb6e 50%,#e17055)',boxShadow:'0 0 14px 4px rgba(253,203,110,.8)',pointerEvents:'none'}}/>}
                       <div style={{position:'absolute',top:10,left:0,right:0,display:'flex',justifyContent:'space-around',pointerEvents:'none'}}>
                         <span style={{fontSize:36,fontWeight:900,color:'rgba(129,212,250,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(79,195,247,.5)'}}>{mgState.ppS1||0}</span>
                         <span style={{fontSize:36,fontWeight:900,color:'rgba(239,154,154,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(239,154,154,.5)'}}>{mgState.ppS2||0}</span>
