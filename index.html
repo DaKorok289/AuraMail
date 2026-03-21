@@ -2468,9 +2468,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         const bullets = bSnap.val() || {};
         FB.ref('minigame/players').once('value').then(pSnap => {
           const allP = pSnap.val() || {};
-          // End game immediately if only 1 (or 0) alive — catches cases where last kill happened without a new bullet hit
-          const aliveAll = Object.entries(allP).filter(([,p])=>!p.eliminated);
-          if (aliveAll.length <= 1) {
+          // End game if only 1 alive AND at least 2 players have joined (prevents auto-win before everyone loads in)
+          const allEntries = Object.entries(allP);
+          const aliveAll = allEntries.filter(([,p])=>!p.eliminated);
+          if (allEntries.length >= 2 && aliveAll.length <= 1) {
             FB.ref('minigame/state').once('value').then(st => {
               if (st.val()?.status === 'active') FB.ref('minigame/state').update({status:'ended',winner:aliveAll[0]?.[0]||null,type:'shooter'});
             });
@@ -3033,10 +3034,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           let ballX=PP_W/2, ballY=PP_H/2, ballVisible=false;
           if(playing&&mgState.ppBall){
             const {x,y,vx,vy,ts}=mgState.ppBall;
-            const el=(Date.now()-ts)/1000;
+            const el=Math.min((Date.now()-ts)/1000, 0.15); // cap interpolation so ball doesn't fly way off
             const bx=x+vx*el, by=y+vy*el;
-            // Only show ball while it's still in bounds (off-screen = point scored, wait for Firebase)
-            ballVisible = bx>=0 && bx<=PP_W && by>=PP_BALL_R && by<=PP_H-PP_BALL_R;
+            // Ball only goes off left/right when scoring — hide it then; vertical is always in-bounds (bounces)
+            ballVisible = bx >= -PP_BALL_R && bx <= PP_W+PP_BALL_R;
             ballX=bx; ballY=Math.max(PP_BALL_R,Math.min(PP_H-PP_BALL_R,by));
           }
           // Bracket display helper
