@@ -2876,10 +2876,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
 
-  // Admin: run bot AI for Hide & Seek (seeker movement + tagging)
+  // Admin: run bot AI for Hide & Seek (seeker movement + tagging, hider wandering)
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'hide' || mgState.status !== 'active' || !isAdmin) return;
     const map = getMGMap('hide');
+    const mapW = map[0].length, mapH = map.length;
     const interval = setInterval(() => {
       FB.ref('minigame/players').once('value').then(snap => {
         const allP = snap.val() || {};
@@ -2889,48 +2890,56 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         if (!st || st.type !== 'hide' || st.status !== 'active') return;
         const itId = st.it;
         const now = Date.now();
+        const validDirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        const tryStep = (bot, botId, sx, sy) => {
+          if (sx === 0 && sy === 0) return false;
+          const nx = bot.x + sx, ny = bot.y + sy;
+          if (nx < 0 || nx >= mapW || ny < 0 || ny >= mapH) return false;
+          if (map[ny][nx] === 1) return false;
+          FB.ref('minigame/players/'+botId).update({x:nx, y:ny});
+          return true;
+        };
         bots.forEach(([botId, bot]) => {
           const isIt = botId === itId;
-          const tryStep = (sx, sy) => {
-            if (sx === 0 && sy === 0) return false;
-            const nx = bot.x + sx, ny = bot.y + sy;
-            if (nx < 0 || nx >= map[0].length || ny < 0 || ny >= map.length) return false;
-            if (map[ny][nx] === 1) return false;
-            FB.ref('minigame/players/'+botId).update({x:nx, y:ny});
-            return true;
-          };
           if (isIt) {
-            // Bot is seeker — chase nearest human player
-            const targets = Object.entries(allP).filter(([id,p]) => id !== botId && !p.isBot && !p.eliminated);
+            // Seeker bot: prioritize humans, fall back to other bots
+            const humans = Object.entries(allP).filter(([id,p]) => id !== botId && !p.isBot && !p.eliminated);
+            const otherBots = Object.entries(allP).filter(([id,p]) => id !== botId && p.isBot && !p.eliminated);
+            const targets = humans.length ? humans : otherBots;
             if (!targets.length) return;
-            let nearest = null, nearDist = Infinity;
-            targets.forEach(([,t]) => {
+            // Find nearest target
+            let nearestEntry = null, nearDist = Infinity;
+            targets.forEach(entry => {
+              const [,t] = entry;
               const d = Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y);
-              if (d < nearDist) { nearDist = d; nearest = t; nearest._id = t._id; }
+              if (d < nearDist) { nearDist = d; nearestEntry = entry; }
             });
             // Tag if adjacent and past cooldown
-            const adj = targets.find(([,t]) => Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y) <= 1);
-            if (adj && now - (st.itSince||0) > 3000) {
-              const [taggedId] = adj;
+            const adjEntry = targets.find(([,t]) => Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y) <= 1);
+            if (adjEntry && now - (st.itSince||0) > 3000) {
+              const [taggedId] = adjEntry;
               FB.ref('minigame/state').update({it:taggedId, itSince:now});
               FB.ref('minigame/players/'+botId+'/score').transaction(c => (c||0)+1);
               FB.ref('minigame/players/'+taggedId).update({x:HNS_SEEKER_SPAWN.x, y:HNS_SEEKER_SPAWN.y, ts:now});
               FB.ref('rpg/chat').push({author:'__system__', content:`👁 ${bot.name||'CPU'} found ${allP[taggedId]?.name||taggedId}! They're now the seeker!`, ts:now});
               return;
             }
-            if (!nearest) return;
+            if (!nearestEntry) return;
+            const [,nearest] = nearestEntry;
             const dx = nearest.x > bot.x ? 1 : nearest.x < bot.x ? -1 : 0;
             const dy = nearest.y > bot.y ? 1 : nearest.y < bot.y ? -1 : 0;
-            if (!tryStep(dx, dy) && !tryStep(dx, 0) && !tryStep(0, dy)) {
-              const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-              const valid = dirs.filter(([sx,sy]) => { const nx=bot.x+sx,ny=bot.y+sy; return nx>=0&&nx<map[0].length&&ny>=0&&ny<map.length&&map[ny][nx]!==1; });
-              if (valid.length) { const [sx,sy]=valid[Math.floor(Math.random()*valid.length)]; tryStep(sx,sy); }
+            if (!tryStep(bot, botId, dx, dy) && !tryStep(bot, botId, dx, 0) && !tryStep(bot, botId, 0, dy)) {
+              const valid = validDirs.filter(([sx,sy]) => { const nx=bot.x+sx,ny=bot.y+sy; return nx>=0&&nx<mapW&&ny>=0&&ny<mapH&&map[ny][nx]!==1; });
+              if (valid.length) { const [sx,sy]=valid[Math.floor(Math.random()*valid.length)]; tryStep(bot, botId, sx, sy); }
             }
+          } else {
+            // Hider bot: wander randomly through the maze
+            const valid = validDirs.filter(([sx,sy]) => { const nx=bot.x+sx,ny=bot.y+sy; return nx>=0&&nx<mapW&&ny>=0&&ny<mapH&&map[ny][nx]!==1; });
+            if (valid.length) { const [sx,sy]=valid[Math.floor(Math.random()*valid.length)]; tryStep(bot, botId, sx, sy); }
           }
-          // Hider bots stay put (they're hiding!)
         });
       });
-    }, 500);
+    }, 300);
     return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
 
