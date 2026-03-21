@@ -2318,18 +2318,27 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       const p1Y=ppMgPlayersRef.current[match.p1]?.paddleY??(PP_H/2-PP_PADDLE_H/2);
       const p2Y=ppMgPlayersRef.current[match.p2]?.paddleY??(PP_H/2-PP_PADDLE_H/2);
       const lx=PP_PAD_X+PP_PADDLE_W+PP_BALL_R, rx=PP_W-PP_PAD_X-PP_PADDLE_W-PP_BALL_R;
+      const applyPaddleSpin = (hitY, padY) => {
+        // Clamp spin so it can't exceed 1.2x speed
+        let s = ((hitY-(padY+PP_PADDLE_H/2))/(PP_PADDLE_H/2))*PP_SPEED*1.2;
+        s = Math.max(-PP_SPEED*1.2, Math.min(PP_SPEED*1.2, s));
+        // Corner fix: if ball is touching a wall, force vy away from that wall
+        if(y<=PP_BALL_R+1) s=Math.abs(s)+PP_SPEED*0.15;
+        else if(y>=PP_H-PP_BALL_R-1) s=-(Math.abs(s)+PP_SPEED*0.15);
+        return s;
+      };
       // Left paddle
       if(x<=lx&&vx<0){
         if(y+PP_BALL_R>=p1Y&&y-PP_BALL_R<=p1Y+PP_PADDLE_H){
           x=lx; const spd=Math.min(Math.abs(vx)*1.05,PP_SPEED*1.8);
-          vx=spd; vy=((y-(p1Y+PP_PADDLE_H/2))/(PP_PADDLE_H/2))*PP_SPEED*1.2; bounced=true;
+          vx=spd; vy=applyPaddleSpin(y,p1Y); bounced=true;
         }
       }
       // Right paddle
       if(x>=rx&&vx>0){
         if(y+PP_BALL_R>=p2Y&&y-PP_BALL_R<=p2Y+PP_PADDLE_H){
           x=rx; const spd=Math.min(Math.abs(vx)*1.05,PP_SPEED*1.8);
-          vx=-spd; vy=((y-(p2Y+PP_PADDLE_H/2))/(PP_PADDLE_H/2))*PP_SPEED*1.2; bounced=true;
+          vx=-spd; vy=applyPaddleSpin(y,p2Y); bounced=true;
         }
       }
       // Score
