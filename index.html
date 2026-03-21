@@ -618,6 +618,7 @@ const MINIGAME_TYPES = [
   { id:'boxing',   name:'Boxing',          icon:'🥊', desc:'Tournament bracket! 1v1 boxing matches — punch your opponent to 0 HP. Last one standing wins!', minPlayers:2, aura:40 },
   { id:'soccer',   name:'Soccer Shootout', icon:'⚽', desc:'Everyone takes turns as the goalie! Aim with mouse/drag and kick to score. The player with the most goals wins!', minPlayers:2, aura:30 },
   { id:'fencing',  name:'Fencing',         icon:'🤺', desc:'Tournament bracket! Duel 1v1 on the strip — advance, retreat, lunge and parry. First to 5 touches wins!', minPlayers:2, aura:35 },
+  { id:'longshot', name:'Long Shot',        icon:'📏', desc:'Answer trivia questions — longer correct answers score more points! 10 questions, highest total wins.', minPlayers:2, aura:30 },
 ];
 
 const MG_MAP_RLGL = (() => {
@@ -724,6 +725,52 @@ const SO_BALL_SPEED = 750;
 const SO_KICK_X = SO_W / 2, SO_KICK_Y = SO_H - 80;
 const SO_SHOTS_PER_PLAYER = 3;
 const SO_AIM_TIMEOUT = 7000;
+
+// ── Long Shot constants ───────────────────────────────────────
+const LONGSHOT_ROUNDS = 10;
+const LONGSHOT_ANSWER_TIME = 25000;   // ms per question
+const LONGSHOT_REVEAL_TIME = 5000;    // ms to show results before next question
+const LONGSHOT_PENALTY = 10;          // penalty score for wrong answers (shortest-wins mod)
+
+const LONGSHOT_QS = [
+  // Days
+  {q:'Name a day of the week', answers:['monday','tuesday','wednesday','thursday','friday','saturday','sunday']},
+  // Months
+  {q:'Name a month of the year', answers:['january','february','march','april','may','june','july','august','september','october','november','december']},
+  // Foods
+  {q:'Name a food', answers:['pizza','spaghetti','hamburger','sandwich','sushi','pancakes','omelette','burrito','lasagna','steak','salad','pasta','chicken','broccoli','watermelon','strawberry','blueberry','pineapple','avocado','quesadilla','enchilada','croissant','cheesecake','brownie','macaroni','dumpling','waffles','nachos','tacos','ramen']},
+  // Animals
+  {q:'Name an animal', answers:['elephant','rhinoceros','hippopotamus','crocodile','giraffe','cheetah','penguin','gorilla','dolphin','kangaroo','porcupine','armadillo','chimpanzee','orangutan','flamingo','alligator','bison','platypus','salamander','wolverine','hamster','rabbit','tiger','leopard','panther','jaguar','scorpion','butterfly','caterpillar','grasshopper']},
+  // Sports
+  {q:'Name a sport', answers:['basketball','volleyball','badminton','swimming','gymnastics','wrestling','skateboarding','snowboarding','waterpolo','weightlifting','cycling','archery','fencing','taekwondo','hockey','baseball','football','tennis','cricket','rugby']},
+  // Musical instruments
+  {q:'Name a musical instrument', answers:['piano','guitar','violin','trumpet','saxophone','trombone','accordion','harmonica','xylophone','clarinet','cello','flute','banjo','ukulele','mandolin','oboe','bassoon','tambourine','kazoo','tuba','marimba','sitar','bagpipes','didgeridoo']},
+  // Colors
+  {q:'Name a color', answers:['red','orange','yellow','green','blue','purple','pink','brown','black','white','grey','silver','gold','magenta','cyan','turquoise','lavender','maroon','crimson','scarlet','indigo','violet','teal','coral','salmon','peach','beige','ivory']},
+  // Countries
+  {q:'Name a country', answers:['afghanistan','argentina','australia','bangladesh','brazil','cambodia','cameroon','canada','chile','china','colombia','croatia','czech republic','denmark','ecuador','egypt','ethiopia','finland','france','germany','ghana','greece','guatemala','hungary','iceland','india','indonesia','iran','iraq','ireland','israel','italy','jamaica','japan','jordan','kenya','laos','lebanon','madagascar','malaysia','maldives','mexico','morocco','mozambique','myanmar','netherlands','new zealand','nicaragua','nigeria','norway','pakistan','palestine','panama','paraguay','peru','philippines','poland','portugal','romania','russia','rwanda','saudi arabia','senegal','singapore','slovakia','somalia','south africa','south korea','spain','sri lanka','sudan','sweden','switzerland','taiwan','tanzania','thailand','turkey','uganda','ukraine','united kingdom','united states','uruguay','venezuela','vietnam','zimbabwe']},
+  // US States
+  {q:'Name a US state', answers:['alabama','alaska','arizona','arkansas','california','colorado','connecticut','delaware','florida','georgia','hawaii','idaho','illinois','indiana','iowa','kansas','kentucky','louisiana','maine','maryland','massachusetts','michigan','minnesota','mississippi','missouri','montana','nebraska','nevada','new hampshire','new jersey','new mexico','new york','north carolina','north dakota','ohio','oklahoma','oregon','pennsylvania','rhode island','south carolina','south dakota','tennessee','texas','utah','vermont','virginia','washington','west virginia','wisconsin','wyoming']},
+  // Planets
+  {q:'Name a planet in the solar system', answers:['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune']},
+  // Fruits
+  {q:'Name a fruit', answers:['apple','banana','cherry','grape','mango','orange','peach','pear','plum','strawberry','watermelon','pineapple','kiwi','lemon','lime','coconut','blueberry','raspberry','papaya','guava','pomegranate','apricot','cantaloupe','honeydew','tangerine','clementine','lychee','passionfruit','dragonfruit','blackberry','cranberry','grapefruit','persimmon','nectarine','starfruit']},
+  // Vegetables
+  {q:'Name a vegetable', answers:['artichoke','asparagus','beetroot','broccoli','cabbage','carrot','cauliflower','celery','cucumber','eggplant','fennel','garlic','kale','leek','lettuce','mushroom','onion','parsnip','peas','pepper','potato','pumpkin','radish','spinach','squash','sweetcorn','tomato','turnip','zucchini']},
+  // Movies
+  {q:'Name a movie', answers:['avengers','batman','cinderella','deadpool','encanto','frozen','gladiator','halloween','inception','jumanji','kung fu panda','lilo and stitch','moana','narnia','pinocchio','ratatouille','spiderman','terminator','transformers','undertaker','wolverine']},
+  // Capitals
+  {q:'Name a world capital city', answers:['amsterdam','ankara','athens','baghdad','bangkok','beijing','berlin','bogota','brasilia','brussels','bucharest','budapest','buenos aires','cairo','canberra','caracas','copenhagen','dhaka','dublin','hanoi','havana','islamabad','jakarta','kabul','kathmandu','kuala lumpur','lima','lisbon','ljubljana','london','luxembourg','madrid','manila','mexico city','moscow','nairobi','new delhi','oslo','ottawa','paris','prague','pretoria','reykjavik','riga','riyadh','rome','santiago','sarajevo','seoul','singapore','stockholm','taipei','tehran','tirana','tokyo','vienna','vilnius','warsaw','washington dc','wellington','zagreb']},
+  // Body parts
+  {q:'Name a body part', answers:['abdomen','achilles','appendix','bladder','cerebellum','clavicle','diaphragm','esophagus','earlobe','femur','gallbladder','hamstring','hippocampus','intestine','kneecap','ligament','mandible','metacarpal','patella','phalange','quadriceps','retina','scapula','shin','sternum','tendon','thyroid','tonsils','trachea','vertebrae','wrist','calf','elbow','forearm','kneecap','shoulderblade','thumbnail']},
+  // Languages
+  {q:'Name a spoken language', answers:['afrikaans','albanian','arabic','armenian','azerbaijani','belarusian','bengali','bosnian','bulgarian','catalan','chinese','croatian','czech','danish','dutch','english','esperanto','estonian','finnish','french','georgian','german','greek','gujarati','hausa','hebrew','hindi','hungarian','icelandic','igbo','indonesian','italian','japanese','javanese','kannada','kazakh','korean','latin','latvian','lithuanian','macedonian','malay','maltese','marathi','mongolian','norwegian','pashto','persian','polish','portuguese','punjabi','romanian','russian','serbian','sinhala','slovak','slovenian','somali','spanish','swahili','swedish','tagalog','tamil','telugu','thai','turkish','ukrainian','urdu','uzbek','vietnamese','welsh','yoruba','zulu']},
+];
+
+function pickLongShotQuestions(n){
+  const shuffled=[...LONGSHOT_QS].sort(()=>Math.random()-.5);
+  return shuffled.slice(0,n).map(item=>({q:item.q, answers:item.answers}));
+}
 
 function getMGMap(t){return{corners:MG_MAP_CORNERS,tag:MG_MAP_TAG,hide:MG_MAP_HNS,shooter:MG_MAP_SHOOTER}[t]||MG_MAP_TAG;}
 
@@ -2180,6 +2227,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const fnLastStepRef  = useRef(0);
   const fnProcessRef   = useRef(false);
   const [fnTick, setFnTick] = useState(0);
+  // Long Shot state
+  const [laAnswer,    setLaAnswer]    = useState('');
+  const [laSubmitted, setLaSubmitted] = useState(false);
+  const [laTick,      setLaTick]      = useState(0);
 
   const chatBoxRef = useRef(null);
   const u    = userData[me]||{};
@@ -3404,6 +3455,102 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     return () => clearTimeout(timer);
   }, [inMG, mgState?.type, mgState?.soStatus, mgState?.startedBy, me]);
 
+  // Long Shot: local timer tick (all players)
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'longshot' || mgState.laStatus !== 'answering') return;
+    const interval = setInterval(() => setLaTick(t => t+1), 250);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.type, mgState?.laStatus]);
+
+  // Long Shot: reset answer when round changes
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'longshot') return;
+    setLaAnswer('');
+    setLaSubmitted(false);
+  }, [inMG, mgState ? mgState.laRound : null, mgState ? mgState.type : null]);
+
+  // Long Shot admin: check deadline, score answers, transition to 'revealing'
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'longshot' || mgState.laStatus !== 'answering' || !isAdmin) return;
+    const interval = setInterval(() => {
+      const deadline = mgStateRef.current?.laDeadline;
+      if (!deadline || Date.now() < deadline) return;
+      // Snapshot answers + state atomically
+      Promise.all([
+        FB.ref('minigame/la_answers').once('value'),
+        FB.ref('minigame/state').once('value'),
+      ]).then(([aSnap, stSnap]) => {
+        const st = stSnap.val();
+        if (!st || st.laStatus !== 'answering') return;
+        const roundIdx = st.laRound || 0;
+        const q = (st.laRoundQs || [])[roundIdx];
+        if (!q) return;
+        const validAnswers = (q.answers || []).map(a => a.toLowerCase().trim());
+        const rawAnswers = aSnap.val() || {};
+        const mod = !!st.laMod;
+        const results = {};
+        const scoreDeltas = {};
+        Object.keys(st.laScores || {}).forEach(u => {
+          const raw = (rawAnswers[u] || '').toLowerCase().trim();
+          const correct = raw.length > 0 && validAnswers.includes(raw);
+          let pts = 0;
+          if (mod) {
+            pts = correct ? raw.length : LONGSHOT_PENALTY;
+          } else {
+            pts = correct ? raw.length : 0;
+          }
+          results[u] = { answer: rawAnswers[u] || '', correct, pts };
+          scoreDeltas[u] = pts;
+        });
+        const newScores = {};
+        Object.entries(st.laScores || {}).forEach(([u, s]) => {
+          newScores[u] = (s || 0) + (scoreDeltas[u] || 0);
+        });
+        FB.ref('minigame/state').update({
+          laStatus: 'revealing',
+          laRoundResults: results,
+          laScores: newScores,
+        });
+        FB.ref('minigame/la_answers').remove();
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.type, mgState?.laStatus, isAdmin]);
+
+  // Long Shot admin: 'revealing' → next round or end
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'longshot' || mgState.laStatus !== 'revealing' || !isAdmin) return;
+    const timer = setTimeout(() => {
+      FB.ref('minigame/state').once('value').then(snap => {
+        const st = snap.val();
+        if (!st || st.laStatus !== 'revealing') return;
+        const nextRound = (st.laRound || 0) + 1;
+        if (nextRound >= LONGSHOT_ROUNDS) {
+          // End game
+          const scores = st.laScores || {};
+          let winner = null;
+          if (st.laMod) {
+            // Lowest score wins
+            winner = Object.entries(scores).sort((a, b) => a[1] - b[1])[0]?.[0] || null;
+          } else {
+            // Highest score wins
+            winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+          }
+          FB.ref('minigame/state').update({ laStatus: 'ended', status: 'ended', winner, type: 'longshot' });
+        } else {
+          FB.ref('minigame/state').update({
+            laRound: nextRound,
+            laStatus: 'answering',
+            laDeadline: Date.now() + LONGSHOT_ANSWER_TIME,
+            laRoundResults: null,
+          });
+          FB.ref('minigame/la_answers').remove();
+        }
+      });
+    }, LONGSHOT_REVEAL_TIME);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.type, mgState?.laStatus, mgState?.laRound, isAdmin]);
+
   // Sync raw bullet data from Firebase
   const [bullets2, setBullets2] = useState([]);
   useEffect(() => {
@@ -3558,6 +3705,18 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       updates['minigame/state/fnP2HP'] = FN_HP;
       updates['minigame/state/fnP1X'] = FN_P1_START;
       updates['minigame/state/fnP2X'] = FN_P2_START;
+    }
+    if (mgState?.type === 'longshot') {
+      const allP = [...new Set([...pList, me])];
+      const qs = pickLongShotQuestions(LONGSHOT_ROUNDS);
+      const initScores = Object.fromEntries(allP.map(p => [p, 0]));
+      updates['minigame/state/laRound'] = 0;
+      updates['minigame/state/laRoundQs'] = qs;
+      updates['minigame/state/laScores'] = initScores;
+      updates['minigame/state/laStatus'] = 'answering';
+      updates['minigame/state/laDeadline'] = Date.now() + LONGSHOT_ANSWER_TIME;
+      updates['minigame/state/laRoundResults'] = null;
+      updates['minigame/la_answers'] = null;
     }
     FB.ref().update(updates);
   }, [mgPlayers, mgState, me]);
@@ -4140,8 +4299,22 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             </div>;
           })()}
 
+          {/* Long Shot round + timer */}
+          {mgState.type==='longshot'&&isActive&&mgState.laStatus==='answering'&&(()=>{
+            void laTick;
+            const secs = Math.max(0, Math.ceil(((mgState.laDeadline||0)-Date.now())/1000));
+            const rnd = (mgState.laRound||0)+1;
+            return <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(253,203,110,.12)',border:'1px solid rgba(253,203,110,.3)',fontSize:12,fontWeight:800,color:'#fdcb6e'}}>
+              📏 Round {rnd}/{LONGSHOT_ROUNDS} — {secs}s
+            </div>;
+          })()}
+          {mgState.type==='longshot'&&isActive&&mgState.laStatus==='revealing'&&(
+            <div style={{marginLeft:8,padding:'4px 12px',borderRadius:20,background:'rgba(67,181,129,.12)',border:'1px solid rgba(67,181,129,.3)',fontSize:12,fontWeight:800,color:'#43b581'}}>
+              📊 Results…
+            </div>
+          )}
           {isLobby&&<span style={{marginLeft:8,fontSize:11,color:'#fdcb6e',fontWeight:700}}>⏳ Waiting for players…</span>}
-          {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&mgState.type!=='fencing'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
+          {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&mgState.type!=='fencing'&&mgState.type!=='longshot'&&<span style={{marginLeft:8,fontSize:12,color:'#555',fontWeight:700,fontVariantNumeric:'tabular-nums'}}>⏱ {mgTimer}s</span>}
 
           <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
             <span style={{fontSize:11,color:'#333'}}>👥 {Object.keys(mgPlayers).length}</span>
@@ -4153,63 +4326,104 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
 
         {/* Lobby screen */}
         {isLobby&&(
-          <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16,background:'#080814'}}>
-            <div style={{fontSize:52}}>{mgType.icon}</div>
-            <div style={{fontSize:20,fontWeight:900,color:'#e0e4ff'}}>{mgType.name}</div>
-            <div style={{fontSize:13,color:'#555',maxWidth:320,textAlign:'center'}}>{mgType.desc}</div>
-            <div style={{marginTop:8,padding:'12px 20px',borderRadius:12,background:'rgba(255,255,255,.03)',border:'1px solid rgba(255,255,255,.06)',minWidth:200}}>
-              <div style={{fontSize:11,color:'#444',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Players Ready</div>
-              {Object.entries(mgPlayers).map(([u,p])=>(
-                <div key={u} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                  <AvatarSprite emoji={p.isBot?'🤖':(p.avatar||'👤')} color={p.color||avColor(u)} size={28} glow={u===me} isMe={u===me}/>
-                  <span style={{fontSize:13,color:p.isBot?'#a29bfe':u===me?'#fff':'#aaa',fontWeight:u===me?700:400}}>{p.name||u}{u===me?' (you)':''}{p.isBot?' 🤖':''}</span>
-                  <span style={{marginLeft:'auto',fontSize:11,color:p.isBot?'#a29bfe':'#43b581'}}>{p.isBot?'CPU':'✓'}</span>
-                </div>
-              ))}
-              {Object.keys(mgPlayers).length===0&&<div style={{fontSize:12,color:'#333'}}>Waiting…</div>}
-            </div>
-            {isAdmin&&<button onClick={()=>{
-              const botCount=Object.values(mgPlayers).filter(p=>p.isBot).length;
-              const botId='__bot_'+(botCount+1)+'__';
-              const base={name:'CPU '+(botCount+1),avatar:'🤖',color:'#a29bfe',isBot:true,score:0};
-              if(mgState?.type==='shooter'){
-                const spawns=SHOOTER_SPAWNS.filter(s=>!Object.values(mgPlayers).some(p=>Math.round(p.x)===s.x&&Math.round(p.y)===s.y));
-                const sp=spawns[Math.floor(Math.random()*spawns.length)]||SHOOTER_SPAWNS[botCount%SHOOTER_SPAWNS.length];
-                FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y});
-              } else if(['corners','hide','tag'].includes(mgState?.type)){
-                const map=getMGMap(mgState.type);
-                const by=map.length-2;
-                // Scan bottom rows for valid (non-wall, non-obstacle) spawn tiles
-                const validSpawns=[];
-                for(let sy=Math.max(1,by-2);sy<=Math.min(by,map.length-2);sy++){
-                  for(let sx=1;sx<map[0].length-1;sx++){
-                    if(map[sy][sx]!==1&&map[sy][sx]!==2) validSpawns.push({x:sx,y:sy});
+          <div style={{flex:1,display:'flex',overflow:'hidden',background:'#080814'}}>
+            {/* Center: icon + players */}
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16,padding:'16px 12px',overflowY:'auto'}}>
+              <div style={{fontSize:52}}>{mgType.icon}</div>
+              <div style={{fontSize:20,fontWeight:900,color:'#e0e4ff'}}>{mgType.name}</div>
+              <div style={{fontSize:13,color:'#555',maxWidth:320,textAlign:'center'}}>{mgType.desc}</div>
+              <div style={{marginTop:8,padding:'12px 20px',borderRadius:12,background:'rgba(255,255,255,.03)',border:'1px solid rgba(255,255,255,.06)',minWidth:200}}>
+                <div style={{fontSize:11,color:'#444',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Players Ready</div>
+                {Object.entries(mgPlayers).map(([u,p])=>(
+                  <div key={u} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                    <AvatarSprite emoji={p.isBot?'🤖':(p.avatar||'👤')} color={p.color||avColor(u)} size={28} glow={u===me} isMe={u===me}/>
+                    <span style={{fontSize:13,color:p.isBot?'#a29bfe':u===me?'#fff':'#aaa',fontWeight:u===me?700:400}}>{p.name||u}{u===me?' (you)':''}{p.isBot?' 🤖':''}</span>
+                    <span style={{marginLeft:'auto',fontSize:11,color:p.isBot?'#a29bfe':'#43b581'}}>{p.isBot?'CPU':'✓'}</span>
+                  </div>
+                ))}
+                {Object.keys(mgPlayers).length===0&&<div style={{fontSize:12,color:'#333'}}>Waiting…</div>}
+              </div>
+              {isAdmin&&<button onClick={()=>{
+                const botCount=Object.values(mgPlayers).filter(p=>p.isBot).length;
+                const botId='__bot_'+(botCount+1)+'__';
+                const base={name:'CPU '+(botCount+1),avatar:'🤖',color:'#a29bfe',isBot:true,score:0};
+                if(mgState?.type==='shooter'){
+                  const spawns=SHOOTER_SPAWNS.filter(s=>!Object.values(mgPlayers).some(p=>Math.round(p.x)===s.x&&Math.round(p.y)===s.y));
+                  const sp=spawns[Math.floor(Math.random()*spawns.length)]||SHOOTER_SPAWNS[botCount%SHOOTER_SPAWNS.length];
+                  FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y});
+                } else if(['corners','hide','tag'].includes(mgState?.type)){
+                  const map=getMGMap(mgState.type);
+                  const by=map.length-2;
+                  // Scan bottom rows for valid (non-wall, non-obstacle) spawn tiles
+                  const validSpawns=[];
+                  for(let sy=Math.max(1,by-2);sy<=Math.min(by,map.length-2);sy++){
+                    for(let sx=1;sx<map[0].length-1;sx++){
+                      if(map[sy][sx]!==1&&map[sy][sx]!==2) validSpawns.push({x:sx,y:sy});
+                    }
                   }
+                  const sp=validSpawns[Math.floor(Math.random()*validSpawns.length)]||{x:1,y:by};
+                  FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y,eliminated:false});
+                } else {
+                  FB.ref('minigame/players/'+botId).set(base);
                 }
-                const sp=validSpawns[Math.floor(Math.random()*validSpawns.length)]||{x:1,y:by};
-                FB.ref('minigame/players/'+botId).set({...base,x:sp.x,y:sp.y,eliminated:false});
-              } else {
-                FB.ref('minigame/players/'+botId).set(base);
-              }
-            }} style={{padding:'6px 16px',borderRadius:8,border:'1px solid rgba(162,155,254,.3)',background:'rgba(162,155,254,.1)',color:'#a29bfe',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>+ Add Computer Player</button>}
-            {/* Shooter map modifier toggle */}
-            {mgState?.type==='shooter'&&(
-              <div onClick={isAdmin?()=>FB.ref('minigame/state/shooterMapMod').set(!mgState.shooterMapMod):undefined}
-                style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:10,
-                  background:'rgba(255,255,255,.03)',border:`1px solid ${mgState.shooterMapMod?'rgba(67,181,129,.3)':'rgba(255,255,255,.06)'}`,
-                  cursor:isAdmin?'pointer':'default',transition:'border-color .2s',marginTop:4}}>
-                <span style={{fontSize:22}}>{mgState.shooterMapMod?'👁':'🔫'}</span>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:13,fontWeight:700,color:'#e0e4ff'}}>Map: {mgState.shooterMapMod?'Hide & Seek Maze':'Default Arena'}</div>
-                  <div style={{fontSize:11,color:'#555'}}>{isAdmin?'Tap to switch':'Set by host'}</div>
-                </div>
-                {isAdmin&&<div style={{width:34,height:19,borderRadius:10,background:mgState.shooterMapMod?'#43b581':'rgba(255,255,255,.1)',position:'relative',transition:'background .2s',flexShrink:0}}>
-                  <div style={{position:'absolute',top:2.5,left:mgState.shooterMapMod?15:2.5,width:14,height:14,borderRadius:7,background:'#fff',transition:'left .18s'}}/>
-                </div>}
+              }} style={{padding:'6px 16px',borderRadius:8,border:'1px solid rgba(162,155,254,.3)',background:'rgba(162,155,254,.1)',color:'#a29bfe',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>+ Add Computer Player</button>}
+              {!isAdmin&&<div style={{fontSize:12,color:'#444'}}>Waiting for {mgState.startedBy} to start the game…</div>}
+              {isAdmin&&<div style={{fontSize:12,color:'#555'}}>Press <span style={{color:'#43b581',fontWeight:700}}>▶ Start</span> when everyone has joined.</div>}
+            </div>
+            {/* Modifiers sidebar (shooter / longshot only) */}
+            {(mgState?.type==='shooter'||mgState?.type==='longshot')&&(
+              <div style={{width:isMobile?150:230,background:'#0a0a16',borderLeft:'1px solid rgba(255,255,255,.06)',padding:'14px 12px',display:'flex',flexDirection:'column',gap:10,overflowY:'auto',flexShrink:0}}>
+                <div style={{fontSize:9,color:'#333',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,paddingBottom:6,borderBottom:'1px solid rgba(255,255,255,.05)'}}>Modifiers</div>
+                {/* Shooter: map modifier */}
+                {mgState?.type==='shooter'&&(<>
+                  <div onClick={isAdmin?()=>FB.ref('minigame/state/shooterMapMod').set(!mgState.shooterMapMod):undefined}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:10,
+                      background:'rgba(255,255,255,.03)',border:`1px solid ${mgState.shooterMapMod?'rgba(67,181,129,.3)':'rgba(255,255,255,.06)'}`,
+                      cursor:isAdmin?'pointer':'default',transition:'border-color .2s'}}>
+                    <span style={{fontSize:18}}>{mgState.shooterMapMod?'👁':'🔫'}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,fontWeight:700,color:'#e0e4ff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Map: {mgState.shooterMapMod?'H&S Maze':'Default'}</div>
+                      <div style={{fontSize:10,color:'#444'}}>{isAdmin?'Tap to switch':'Set by host'}</div>
+                    </div>
+                    {isAdmin&&<div style={{width:28,height:16,borderRadius:8,background:mgState.shooterMapMod?'#43b581':'rgba(255,255,255,.1)',position:'relative',transition:'background .2s',flexShrink:0}}>
+                      <div style={{position:'absolute',top:2,left:mgState.shooterMapMod?12:2,width:12,height:12,borderRadius:6,background:'#fff',transition:'left .18s'}}/>
+                    </div>}
+                  </div>
+                  {/* Shooter: fog of war (only when H&S map is on) */}
+                  {mgState.shooterMapMod&&(
+                    <div onClick={isAdmin?()=>FB.ref('minigame/state/shooterFogMod').set(!mgState.shooterFogMod):undefined}
+                      style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:10,
+                        background:'rgba(255,255,255,.03)',border:`1px solid ${mgState.shooterFogMod?'rgba(79,195,247,.3)':'rgba(255,255,255,.06)'}`,
+                        cursor:isAdmin?'pointer':'default',transition:'border-color .2s',marginLeft:10}}>
+                      <span style={{fontSize:16}}>{mgState.shooterFogMod?'🌫️':'💡'}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:11,fontWeight:700,color:'#e0e4ff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{mgState.shooterFogMod?'Fog of War ON':'Full Visibility'}</div>
+                        <div style={{fontSize:10,color:'#444'}}>{isAdmin?'Tap to toggle':'Set by host'}</div>
+                      </div>
+                      {isAdmin&&<div style={{width:28,height:16,borderRadius:8,background:mgState.shooterFogMod?'#4fc3f7':'rgba(255,255,255,.1)',position:'relative',transition:'background .2s',flexShrink:0}}>
+                        <div style={{position:'absolute',top:2,left:mgState.shooterFogMod?12:2,width:12,height:12,borderRadius:6,background:'#fff',transition:'left .18s'}}/>
+                      </div>}
+                    </div>
+                  )}
+                </>)}
+                {/* Long Shot: shortest wins modifier */}
+                {mgState?.type==='longshot'&&(
+                  <div onClick={isAdmin?()=>FB.ref('minigame/state/laMod').set(!mgState.laMod):undefined}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:10,
+                      background:'rgba(255,255,255,.03)',border:`1px solid ${mgState.laMod?'rgba(231,76,60,.3)':'rgba(255,255,255,.06)'}`,
+                      cursor:isAdmin?'pointer':'default',transition:'border-color .2s'}}>
+                    <span style={{fontSize:18}}>{mgState.laMod?'🔄':'📏'}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,fontWeight:700,color:'#e0e4ff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{mgState.laMod?'Shortest Wins':'Longest Wins'}</div>
+                      <div style={{fontSize:10,color:'#444'}}>{mgState.laMod?'Wrong +'+LONGSHOT_PENALTY+' pts':'Correct length = pts'}</div>
+                    </div>
+                    {isAdmin&&<div style={{width:28,height:16,borderRadius:8,background:mgState.laMod?'#e74c3c':'rgba(255,255,255,.1)',position:'relative',transition:'background .2s',flexShrink:0}}>
+                      <div style={{position:'absolute',top:2,left:mgState.laMod?12:2,width:12,height:12,borderRadius:6,background:'#fff',transition:'left .18s'}}/>
+                    </div>}
+                  </div>
+                )}
               </div>
             )}
-            {!isAdmin&&<div style={{fontSize:12,color:'#444'}}>Waiting for {mgState.startedBy} to start the game…</div>}
-            {isAdmin&&<div style={{fontSize:12,color:'#555'}}>Press <span style={{color:'#43b581',fontWeight:700}}>▶ Start</span> when everyone has joined.</div>}
           </div>
         )}
 
@@ -4684,8 +4898,117 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           );
         })()}
 
-        {/* Active mini-game map — camera follows player (not pingpong/boxing/soccer/fencing) */}
-        {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&mgState.type!=='fencing'&&(()=>{
+        {/* Long Shot game UI */}
+        {isActive&&mgState.type==='longshot'&&(()=>{
+          void laTick;
+          const roundIdx = mgState.laRound||0;
+          const q = (mgState.laRoundQs||[])[roundIdx];
+          const scores = mgState.laScores||{};
+          const results = mgState.laRoundResults||{};
+          const mod = !!mgState.laMod;
+          const secs = Math.max(0, Math.ceil(((mgState.laDeadline||0)-Date.now())/1000));
+          const timerPct = Math.min(1, Math.max(0, secs / (LONGSHOT_ANSWER_TIME/1000)));
+          const isRevealing = mgState.laStatus==='revealing';
+          const isAnswering = mgState.laStatus==='answering';
+          const sortedPlayers = Object.entries(scores).sort((a,b)=>mod?a[1]-b[1]:b[1]-a[1]);
+          const submitAnswer = () => {
+            if (laSubmitted || !laAnswer.trim() || !isAnswering) return;
+            FB.ref('minigame/la_answers/'+me).set(laAnswer.trim());
+            setLaSubmitted(true);
+          };
+          return (
+            <div style={{flex:1,display:'flex',overflow:'hidden',background:'#080814'}}>
+              {/* Main area */}
+              <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,padding:'16px 12px',overflowY:'auto'}}>
+                {/* Question card */}
+                {q&&<div style={{width:'100%',maxWidth:520,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:16,padding:'20px 24px',textAlign:'center'}}>
+                  <div style={{fontSize:11,color:'#444',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,marginBottom:8}}>
+                    {mod?'⚠️ Shortest Wins — Wrong answers add +'+LONGSHOT_PENALTY+' penalty':'📏 Longer answer = More points'}
+                  </div>
+                  <div style={{fontSize:isMobile?17:22,fontWeight:800,color:'#e0e4ff',marginBottom:16,lineHeight:1.3}}>{q.q}</div>
+                  {isAnswering&&!laSubmitted&&(
+                    <div style={{display:'flex',gap:8}}>
+                      <input
+                        autoFocus
+                        value={laAnswer}
+                        onChange={e=>setLaAnswer(e.target.value)}
+                        onKeyDown={e=>{if(e.key==='Enter')submitAnswer();}}
+                        placeholder="Type your answer…"
+                        maxLength={80}
+                        style={{flex:1,padding:'10px 14px',borderRadius:10,border:'1px solid rgba(255,255,255,.12)',background:'rgba(255,255,255,.06)',color:'#fff',fontSize:14,fontFamily:'inherit',outline:'none'}}
+                      />
+                      <button onClick={submitAnswer}
+                        style={{padding:'10px 18px',borderRadius:10,border:'none',background:'linear-gradient(135deg,#43b581,#2ecc71)',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:'inherit',flexShrink:0}}>
+                        Submit
+                      </button>
+                    </div>
+                  )}
+                  {isAnswering&&laSubmitted&&(
+                    <div style={{padding:'10px 14px',borderRadius:10,background:'rgba(67,181,129,.12)',border:'1px solid rgba(67,181,129,.3)',color:'#43b581',fontWeight:700,fontSize:14}}>
+                      ✓ Submitted — "{laAnswer}" — waiting for others…
+                    </div>
+                  )}
+                </div>}
+                {/* Timer bar (answering phase) */}
+                {isAnswering&&<div style={{width:'100%',maxWidth:520}}>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:5,fontSize:12}}>
+                    <span style={{color:'#555',fontWeight:700}}>Time left</span>
+                    <span style={{color:secs<=5?'#e74c3c':'#fdcb6e',fontWeight:800,fontVariantNumeric:'tabular-nums'}}>{secs}s</span>
+                  </div>
+                  <div style={{height:6,background:'rgba(255,255,255,.07)',borderRadius:3,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${timerPct*100}%`,background:secs<=5?'#e74c3c':'#fdcb6e',borderRadius:3,transition:'width .25s linear'}}/>
+                  </div>
+                </div>}
+                {/* Reveal card */}
+                {isRevealing&&q&&<div style={{width:'100%',maxWidth:520,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:16,padding:'20px 24px'}}>
+                  <div style={{fontSize:12,color:'#555',fontWeight:700,textTransform:'uppercase',letterSpacing:.8,marginBottom:10,textAlign:'center'}}>Round {roundIdx+1} Results</div>
+                  {Object.entries(results).sort((a,b)=>b[1].pts-a[1].pts).map(([u,r])=>(
+                    <div key={u} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,.05)'}}>
+                      <AvatarSprite emoji={mgPlayers[u]?.avatar||'👤'} color={mgPlayers[u]?.color||avColor(u)} size={26} isMe={u===me}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:u===me?'#fff':'#bbb',fontWeight:700}}>{mgPlayers[u]?.name||u}</div>
+                        <div style={{fontSize:11,color:r.correct?'#43b581':'#e74c3c'}}>
+                          {r.answer?`"${r.answer}"`:''}{r.correct?' ✓':r.answer?' ✗':' (no answer)'}
+                        </div>
+                      </div>
+                      <div style={{fontSize:16,fontWeight:900,color:r.correct?(mod?'#fd79a8':'#fdcb6e'):'#555',minWidth:36,textAlign:'right'}}>
+                        {r.pts>0?(mod?'+'+r.pts+' 📏':'+'+r.pts+' pts'):(mod&&r.pts===LONGSHOT_PENALTY?'+'+LONGSHOT_PENALTY+' ⚠️':'0')}
+                      </div>
+                    </div>
+                  ))}
+                </div>}
+              </div>
+              {/* Scoreboard sidebar */}
+              {(!isMobile||showPanel)&&<div style={{width:isMobile?'70vw':MG_PANEL_W,position:isMobile?'absolute':undefined,right:isMobile?0:undefined,top:isMobile?0:undefined,bottom:isMobile?0:undefined,zIndex:isMobile?20:undefined,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',overflowY:'auto',flexShrink:0}}>
+                <div style={{padding:'7px 10px',fontSize:9,fontWeight:700,color:'#333',textTransform:'uppercase',letterSpacing:.8,borderBottom:'1px solid rgba(255,255,255,.05)'}}>
+                  Scoreboard {mod?'(lowest wins)':'(highest wins)'}
+                </div>
+                {sortedPlayers.map(([u,score],rank)=>{
+                  const maxScore = Math.max(1, ...Object.values(scores));
+                  const pct = mod ? 1 : (score/maxScore);
+                  return (
+                    <div key={u} style={{padding:'7px 10px',borderBottom:'1px solid rgba(255,255,255,.04)'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:4}}>
+                        <span style={{fontSize:10,color:'#333',minWidth:14,fontWeight:700}}>#{rank+1}</span>
+                        <AvatarSprite emoji={mgPlayers[u]?.avatar||'👤'} color={mgPlayers[u]?.color||avColor(u)} size={24} isMe={u===me}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:11,color:u===me?'#fff':'#bbb',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{mgPlayers[u]?.name||u}</div>
+                          <div style={{fontSize:10,color:mod?'#fd79a8':'#fdcb6e',fontWeight:800}}>{score} pts</div>
+                        </div>
+                      </div>
+                      <div style={{height:4,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden',marginLeft:21}}>
+                        <div style={{height:'100%',width:`${pct*100}%`,background:mod?'linear-gradient(90deg,#fd79a8,#e84393)':'linear-gradient(90deg,#fdcb6e,#e17055)',borderRadius:2,transition:'width .3s'}}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>}
+            </div>
+          );
+        })()}
+
+        {/* Active mini-game map — camera follows player (not pingpong/boxing/soccer/fencing/longshot) */}
+        {isActive&&mgState.type!=='pingpong'&&mgState.type!=='boxing'&&mgState.type!=='soccer'&&mgState.type!=='fencing'&&mgState.type!=='longshot'&&(()=>{
           // Line-of-sight for Hide & Seek (Bresenham ray — walls block vision)
           let hnsVisible = null;
           if (mgState.type === 'hide') {
@@ -4724,15 +5047,50 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           const shooterBaseMap = mgState.type==='shooter'
             ? (mgState.shooterMapMod ? getMGMap('hide') : getMGMap('shooter'))
             : null;
-          const shooterTiles = shooterBaseMap ? shooterBaseMap.map((row,ry)=>(
-            <div key={ry} style={{display:'flex'}}>
-              {row.map((tile,rx)=>(
-                <div key={rx} style={{width:TILE,height:TILE,flexShrink:0,
-                  background:tile===1?SHOOTER_WALL_BG:tile===2?SHOOTER_COVER_BG:SHOOTER_FLOOR_BG,
-                  border:'1px solid rgba(255,255,255,.04)',boxSizing:'border-box'}}/>
-              ))}
-            </div>
-          )) : null;
+          // Fog of war for shooter H&S map (same Bresenham LoS as Hide & Seek)
+          let shooterFogVisible = null;
+          if (mgState.type==='shooter' && mgState.shooterMapMod && mgState.shooterFogMod) {
+            const sfMap = getMGMap('hide');
+            const sfHasLoS = (x1, y1) => {
+              let x0=mgPos.x, y0=mgPos.y;
+              const dx=Math.abs(x1-x0), dy=Math.abs(y1-y0);
+              const sx=x0<x1?1:-1, sy2=y0<y1?1:-1;
+              let err=dx-dy, cx=x0, cy=y0;
+              while(cx!==x1||cy!==y1){
+                const e2=2*err;
+                if(e2>-dy){err-=dy;cx+=sx;}
+                if(e2<dx){err+=dx;cy+=sy2;}
+                if(cx===x1&&cy===y1) break;
+                if(sfMap[cy]&&sfMap[cy][cx]===1) return false;
+              }
+              return true;
+            };
+            shooterFogVisible = new Set();
+            sfMap.forEach((row,ry)=>row.forEach((_,rx)=>{
+              if(sfHasLoS(rx,ry)) shooterFogVisible.add(rx+','+ry);
+            }));
+          }
+          const shooterTiles = shooterBaseMap ? (shooterFogVisible
+            ? shooterBaseMap.map((row,ry)=>(
+              <div key={ry} style={{display:'flex'}}>
+                {row.map((tile,rx)=>{
+                  const vis = shooterFogVisible.has(rx+','+ry);
+                  return <div key={rx} style={{width:TILE,height:TILE,flexShrink:0,
+                    background:vis?(tile===1?SHOOTER_WALL_BG:tile===2?SHOOTER_COVER_BG:SHOOTER_FLOOR_BG):'#050508',
+                    border:'1px solid rgba(0,0,0,.4)',boxSizing:'border-box'}}/>;
+                })}
+              </div>
+            ))
+            : shooterBaseMap.map((row,ry)=>(
+              <div key={ry} style={{display:'flex'}}>
+                {row.map((tile,rx)=>(
+                  <div key={rx} style={{width:TILE,height:TILE,flexShrink:0,
+                    background:tile===1?SHOOTER_WALL_BG:tile===2?SHOOTER_COVER_BG:SHOOTER_FLOOR_BG,
+                    border:'1px solid rgba(255,255,255,.04)',boxSizing:'border-box'}}/>
+                ))}
+              </div>
+            ))
+          ) : null;
           return (
           <div style={{flex:1,display:'flex',overflow:'hidden'}}>
             <div ref={gameDivRef}
@@ -4743,7 +5101,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                 <div style={{position:'absolute',top:`calc(50% - ${mgPos.y*TILE+TILE/2}px)`,left:`calc(50% - ${mgPos.x*TILE+TILE/2}px)`}}>
                   {fogTiles||shooterTiles||mgTiles}
                   {mgState.type==='shooter'&&(()=>{
-                    const smap = getMGMap('shooter');
+                    const smap = mgState.shooterMapMod ? getMGMap('hide') : getMGMap('shooter');
                     return bullets2.map(b=>{
                       const elapsed = (Date.now() - b.ts) / 1000;
                       let dist = SHOOTER_SPEED * elapsed;
