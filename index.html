@@ -3045,54 +3045,72 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               ))}
             </div>
           );
+          // Scale arena to fit screen — keeps absolute pixel coords intact inside
+          const sidebarW = (!isMobile||showPanel) ? 180 : 0;
+          const ppScale = Math.min(1, (window.innerWidth - sidebarW - (isMobile?8:24)) / PP_W);
+          const scaledW = PP_W * ppScale, scaledH = PP_H * ppScale;
+
+          // Touch drag handler — maps screen Y to game paddle Y
+          const onPPTouchMove = e => {
+            e.preventDefault();
+            const rect = e.currentTarget.parentElement.getBoundingClientRect();
+            const gameY = (e.touches[0].clientY - rect.top) / ppScale - PP_PADDLE_H/2;
+            ppLocalPaddleRef.current = Math.max(0, Math.min(PP_H-PP_PADDLE_H, gameY));
+            if(Date.now()-ppPadWriteRef.current>33){ppPadWriteRef.current=Date.now();FB.ref('minigame/players/'+me+'/paddleY').set(ppLocalPaddleRef.current);}
+          };
+
           return (
             <div style={{flex:1,display:'flex',overflow:'hidden'}}>
               {/* Arena */}
-              <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#03030a',overflow:'hidden',gap:8}}>
-                <div style={{position:'relative',width:PP_W,height:PP_H,maxWidth:'100%',background:'#000',border:'2px solid rgba(255,255,255,.15)',borderRadius:6,overflow:'hidden',flexShrink:0}}>
-                  {/* Center line */}
-                  <div style={{position:'absolute',left:'50%',top:0,width:1,height:'100%',background:'rgba(255,255,255,.08)'}}/>
-                  <div style={{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',width:70,height:70,borderRadius:'50%',border:'1px solid rgba(255,255,255,.06)',pointerEvents:'none'}}/>
-                  {playing?(<>
-                    {/* P1 paddle */}
-                    <div style={{position:'absolute',left:PP_PAD_X,top:p1PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#81d4fa,#0288d1)',borderRadius:5,boxShadow:'0 0 14px rgba(79,195,247,.7)'}}/>
-                    {/* P2 paddle */}
-                    <div style={{position:'absolute',right:PP_PAD_X,top:p2PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#ef9a9a,#c62828)',borderRadius:5,boxShadow:'0 0 14px rgba(239,154,154,.7)'}}/>
-                    {/* Ball */}
-                    <div style={{position:'absolute',left:ballX-PP_BALL_R,top:ballY-PP_BALL_R,width:PP_BALL_R*2,height:PP_BALL_R*2,borderRadius:'50%',background:'radial-gradient(circle at 35% 35%,#fff 10%,#fdcb6e 50%,#e17055)',boxShadow:'0 0 14px 4px rgba(253,203,110,.8)',pointerEvents:'none'}}/>
-                    {/* Scores */}
-                    <div style={{position:'absolute',top:10,left:0,right:0,display:'flex',justifyContent:'space-around',pointerEvents:'none'}}>
-                      <span style={{fontSize:36,fontWeight:900,color:'rgba(129,212,250,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(79,195,247,.5)'}}>{mgState.ppS1||0}</span>
-                      <span style={{fontSize:36,fontWeight:900,color:'rgba(239,154,154,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(239,154,154,.5)'}}>{mgState.ppS2||0}</span>
-                    </div>
-                    {/* Names */}
-                    <div style={{position:'absolute',bottom:8,left:0,right:0,display:'flex',justifyContent:'space-around',pointerEvents:'none'}}>
-                      <span style={{fontSize:10,color:'#4fc3f7',fontWeight:700,background:'rgba(0,0,0,.6)',padding:'2px 8px',borderRadius:8}}>{mgPlayers[p1]?.name||p1}{amP1?' (you)':''}</span>
-                      <span style={{fontSize:10,color:'#ef9a9a',fontWeight:700,background:'rgba(0,0,0,.6)',padding:'2px 8px',borderRadius:8}}>{mgPlayers[p2]?.name||p2}{amP2?' (you)':''}</span>
-                    </div>
-                  </>):(
-                    <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,color:'#fff'}}>
-                      <div style={{fontSize:36}}>🏓</div>
-                      {match&&match.p2?(
-                        <>
+              <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#03030a',overflow:'hidden',gap:6}}>
+                {/* Outer wrapper matches the scaled size so layout is correct */}
+                <div style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0}}>
+                  {/* Inner arena at full PP_W×PP_H, scaled down via transform */}
+                  <div style={{position:'absolute',top:0,left:0,width:PP_W,height:PP_H,
+                    transform:`scale(${ppScale})`,transformOrigin:'top left',
+                    background:'#000',border:'2px solid rgba(255,255,255,.15)',borderRadius:6,overflow:'hidden'}}>
+                    {/* Center line + circle */}
+                    <div style={{position:'absolute',left:'50%',top:0,width:1,height:'100%',background:'rgba(255,255,255,.08)'}}/>
+                    <div style={{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',width:70,height:70,borderRadius:'50%',border:'1px solid rgba(255,255,255,.06)',pointerEvents:'none'}}/>
+                    {playing?(<>
+                      <div style={{position:'absolute',left:PP_PAD_X,top:p1PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#81d4fa,#0288d1)',borderRadius:5,boxShadow:'0 0 14px rgba(79,195,247,.7)'}}/>
+                      <div style={{position:'absolute',right:PP_PAD_X,top:p2PadY,width:PP_PADDLE_W,height:PP_PADDLE_H,background:'linear-gradient(180deg,#ef9a9a,#c62828)',borderRadius:5,boxShadow:'0 0 14px rgba(239,154,154,.7)'}}/>
+                      <div style={{position:'absolute',left:ballX-PP_BALL_R,top:ballY-PP_BALL_R,width:PP_BALL_R*2,height:PP_BALL_R*2,borderRadius:'50%',background:'radial-gradient(circle at 35% 35%,#fff 10%,#fdcb6e 50%,#e17055)',boxShadow:'0 0 14px 4px rgba(253,203,110,.8)',pointerEvents:'none'}}/>
+                      <div style={{position:'absolute',top:10,left:0,right:0,display:'flex',justifyContent:'space-around',pointerEvents:'none'}}>
+                        <span style={{fontSize:36,fontWeight:900,color:'rgba(129,212,250,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(79,195,247,.5)'}}>{mgState.ppS1||0}</span>
+                        <span style={{fontSize:36,fontWeight:900,color:'rgba(239,154,154,.8)',fontVariantNumeric:'tabular-nums',textShadow:'0 0 20px rgba(239,154,154,.5)'}}>{mgState.ppS2||0}</span>
+                      </div>
+                      <div style={{position:'absolute',bottom:8,left:0,right:0,display:'flex',justifyContent:'space-around',pointerEvents:'none'}}>
+                        <span style={{fontSize:10,color:'#4fc3f7',fontWeight:700,background:'rgba(0,0,0,.6)',padding:'2px 8px',borderRadius:8}}>{mgPlayers[p1]?.name||p1}{amP1?' (you)':''}</span>
+                        <span style={{fontSize:10,color:'#ef9a9a',fontWeight:700,background:'rgba(0,0,0,.6)',padding:'2px 8px',borderRadius:8}}>{mgPlayers[p2]?.name||p2}{amP2?' (you)':''}</span>
+                      </div>
+                    </>):(
+                      <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,color:'#fff'}}>
+                        <div style={{fontSize:36}}>🏓</div>
+                        {match&&match.p2?(<>
                           <div style={{fontSize:16,fontWeight:800,color:'#e0e4ff'}}>{mgPlayers[match.p1]?.name||match.p1} vs {mgPlayers[match.p2]?.name||match.p2}</div>
                           <div style={{fontSize:12,color:'#555'}}>Match starting soon…</div>
-                        </>
-                      ):<div style={{fontSize:14,color:'#888'}}>Loading bracket…</div>}
-                    </div>
+                        </>):<div style={{fontSize:14,color:'#888'}}>Loading bracket…</div>}
+                      </div>
+                    )}
+                  </div>
+                  {/* Touch drag overlay — covers player's half of the scaled arena */}
+                  {isTouch&&(amP1||amP2)&&playing&&(
+                    <div
+                      onTouchStart={e=>e.preventDefault()}
+                      onTouchMove={onPPTouchMove}
+                      onTouchEnd={()=>{}}
+                      style={{position:'absolute',top:0,bottom:0,
+                        left:amP1?0:'50%',right:amP2?0:'50%',
+                        zIndex:10,touchAction:'none',
+                        background:amP1?'rgba(79,195,247,.05)':'rgba(239,154,154,.05)',
+                        cursor:'ns-resize'}}
+                    />
                   )}
                 </div>
-                {/* Touch controls */}
-                {isTouch&&(amP1||amP2)&&playing&&(
-                  <div style={{display:'flex',gap:16}}>
-                    <div onTouchStart={e=>{e.preventDefault();ppPaddleDirRef.current=-1;}} onTouchEnd={()=>ppPaddleDirRef.current=0}
-                      style={{width:80,height:56,background:'rgba(255,255,255,.06)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,userSelect:'none',touchAction:'none',border:'1px solid rgba(255,255,255,.1)'}}>▲</div>
-                    <div onTouchStart={e=>{e.preventDefault();ppPaddleDirRef.current=1;}} onTouchEnd={()=>ppPaddleDirRef.current=0}
-                      style={{width:80,height:56,background:'rgba(255,255,255,.06)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,userSelect:'none',touchAction:'none',border:'1px solid rgba(255,255,255,.1)'}}>▼</div>
-                  </div>
-                )}
-                {(amP1||amP2)&&playing&&!isTouch&&<div style={{fontSize:11,color:'#333'}}>W/S or ↑↓ to move paddle</div>}
-                {!amP1&&!amP2&&playing&&<div style={{fontSize:12,color:'#555',fontStyle:'italic'}}>You're watching this match</div>}
+                {isTouch&&(amP1||amP2)&&playing&&<div style={{fontSize:10,color:'#444'}}>Drag up/down on your side ↕</div>}
+                {(amP1||amP2)&&playing&&!isTouch&&<div style={{fontSize:11,color:'#333'}}>W / S  or  ↑ / ↓  to move</div>}
+                {!amP1&&!amP2&&playing&&<div style={{fontSize:12,color:'#555',fontStyle:'italic'}}>Spectating…</div>}
               </div>
               {/* Bracket sidebar */}
               {(!isMobile||showPanel)&&<div style={{width:isMobile?'70vw':180,position:isMobile?'absolute':undefined,right:isMobile?0:undefined,top:isMobile?0:undefined,bottom:isMobile?0:undefined,zIndex:isMobile?20:undefined,background:'#0d0d1a',borderLeft:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',flexShrink:0}}>
