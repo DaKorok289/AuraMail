@@ -2343,6 +2343,17 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     setMgPos(HNS_SEEKER_SPAWN);
   }, [inMG, mgState ? mgState.it : null, mgState ? mgState.type : null]);
 
+  // Shooter+HNS modifier: respawn to valid maze positions when game starts
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !mgState.shooterMapMod) return;
+    const pKeys = Object.keys(mgPlayers);
+    const myIdx = pKeys.indexOf(me);
+    const sp = SHOOTER_HNS_SPAWNS[myIdx >= 0 ? myIdx % SHOOTER_HNS_SPAWNS.length : 0];
+    mgPosRef.current = sp;
+    setMgPos(sp);
+    FB.ref('minigame/players/' + me).update({ x: sp.x, y: sp.y, ts: Date.now() });
+  }, [mgState ? mgState.activeSince : null, inMG]);
+
   // ── Ping Pong effects ────────────────────────────────────────
   useEffect(() => { ppMgPlayersRef.current = mgPlayers; }, [mgPlayers]);
 
@@ -5090,17 +5101,6 @@ function MainApp({ me, onLogout }) {
     }, delay);
     return () => clearTimeout(timer);
   }, [activeQuiz]);
-
-  // Respawn to HNS positions when shooter+HNS modifier game goes active
-  useEffect(() => {
-    if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !mgState.shooterMapMod) return;
-    const pKeys = Object.keys(mgPlayers);
-    const myIdx = pKeys.indexOf(me);
-    const sp = SHOOTER_HNS_SPAWNS[myIdx >= 0 ? myIdx % SHOOTER_HNS_SPAWNS.length : 0];
-    mgPosRef.current = sp;
-    setMgPos(sp);
-    FB.ref('minigame/players/' + me).update({ x: sp.x, y: sp.y, ts: Date.now() });
-  }, [mgState?.activeSince, inMG]);
 
   // Unread badge: track last-seen per channel
   useEffect(() => {
