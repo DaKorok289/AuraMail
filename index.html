@@ -2836,26 +2836,31 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     if (!inMG || !mgState || mgState.type !== 'corners' || mgState.status !== 'active' || !isAdmin) return;
     const map = MG_MAP_CORNERS;
     const W = map[0].length, H = map.length;
-    // Corner zone centers: A=top-left, B=top-right, C=bot-left, D=bot-right
     const CORNER_TARGETS = {
       A: {x:3, y:2}, B: {x:18, y:2}, C: {x:3, y:10}, D: {x:18, y:10}
     };
-    const botTargets = {}; // botId → {x,y} target corner position
+    const botTargets = {};
     const interval = setInterval(() => {
       FB.ref('minigame/players').once('value').then(snap => {
         const allP = snap.val() || {};
         const bots = Object.entries(allP).filter(([,p]) => p.isBot && !p.eliminated);
         if (!bots.length) return;
+        const st = mgStateRef.current;
+        const eliminatedCorner = st?.corner || null; // e.g. 'A'
         bots.forEach(([botId, bot]) => {
-          // Pick a new random corner target if none set or already reached
-          if (!botTargets[botId] || (Math.abs(bot.x - botTargets[botId].x) <= 1 && Math.abs(bot.y - botTargets[botId].y) <= 1)) {
-            const keys = Object.keys(CORNER_TARGETS);
-            botTargets[botId] = CORNER_TARGETS[keys[Math.floor(Math.random() * keys.length)]];
-          }
           const tgt = botTargets[botId];
-          const dx = tgt.x > bot.x ? 1 : tgt.x < bot.x ? -1 : 0;
-          const dy = tgt.y > bot.y ? 1 : tgt.y < bot.y ? -1 : 0;
-          // Try to step toward target, fall back to other axis if blocked
+          const atTarget = tgt && Math.abs(bot.x - tgt.x) <= 1 && Math.abs(bot.y - tgt.y) <= 1;
+          const tgtEliminated = tgt && eliminatedCorner && CORNER_TARGETS[eliminatedCorner] &&
+            Math.abs(tgt.x - CORNER_TARGETS[eliminatedCorner].x) <= 2 && Math.abs(tgt.y - CORNER_TARGETS[eliminatedCorner].y) <= 2;
+          if (!tgt || atTarget || tgtEliminated) {
+            // Pick a safe corner (not the eliminated one)
+            const safeKeys = Object.keys(CORNER_TARGETS).filter(k => k !== eliminatedCorner);
+            const choices = safeKeys.length ? safeKeys : Object.keys(CORNER_TARGETS);
+            botTargets[botId] = CORNER_TARGETS[choices[Math.floor(Math.random() * choices.length)]];
+          }
+          const target = botTargets[botId];
+          const dx = target.x > bot.x ? 1 : target.x < bot.x ? -1 : 0;
+          const dy = target.y > bot.y ? 1 : target.y < bot.y ? -1 : 0;
           const tryStep = (sx, sy) => {
             if (sx === 0 && sy === 0) return false;
             const nx = Math.round(bot.x) + sx, ny = Math.round(bot.y) + sy;
@@ -2868,6 +2873,64 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         });
       });
     }, 450);
+    return () => clearInterval(interval);
+  }, [inMG, mgState?.status, mgState?.type, isAdmin]);
+
+  // Admin: run bot AI for Hide & Seek (seeker movement + tagging)
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'hide' || mgState.status !== 'active' || !isAdmin) return;
+    const map = getMGMap('hide');
+    const interval = setInterval(() => {
+      FB.ref('minigame/players').once('value').then(snap => {
+        const allP = snap.val() || {};
+        const bots = Object.entries(allP).filter(([,p]) => p.isBot && !p.eliminated);
+        if (!bots.length) return;
+        const st = mgStateRef.current;
+        if (!st || st.type !== 'hide' || st.status !== 'active') return;
+        const itId = st.it;
+        const now = Date.now();
+        bots.forEach(([botId, bot]) => {
+          const isIt = botId === itId;
+          const tryStep = (sx, sy) => {
+            if (sx === 0 && sy === 0) return false;
+            const nx = bot.x + sx, ny = bot.y + sy;
+            if (nx < 0 || nx >= map[0].length || ny < 0 || ny >= map.length) return false;
+            if (map[ny][nx] === 1) return false;
+            FB.ref('minigame/players/'+botId).update({x:nx, y:ny});
+            return true;
+          };
+          if (isIt) {
+            // Bot is seeker — chase nearest human player
+            const targets = Object.entries(allP).filter(([id,p]) => id !== botId && !p.isBot && !p.eliminated);
+            if (!targets.length) return;
+            let nearest = null, nearDist = Infinity;
+            targets.forEach(([,t]) => {
+              const d = Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y);
+              if (d < nearDist) { nearDist = d; nearest = t; nearest._id = t._id; }
+            });
+            // Tag if adjacent and past cooldown
+            const adj = targets.find(([,t]) => Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y) <= 1);
+            if (adj && now - (st.itSince||0) > 3000) {
+              const [taggedId] = adj;
+              FB.ref('minigame/state').update({it:taggedId, itSince:now});
+              FB.ref('minigame/players/'+botId+'/score').transaction(c => (c||0)+1);
+              FB.ref('minigame/players/'+taggedId).update({x:HNS_SEEKER_SPAWN.x, y:HNS_SEEKER_SPAWN.y, ts:now});
+              FB.ref('rpg/chat').push({author:'__system__', content:`👁 ${bot.name||'CPU'} found ${allP[taggedId]?.name||taggedId}! They're now the seeker!`, ts:now});
+              return;
+            }
+            if (!nearest) return;
+            const dx = nearest.x > bot.x ? 1 : nearest.x < bot.x ? -1 : 0;
+            const dy = nearest.y > bot.y ? 1 : nearest.y < bot.y ? -1 : 0;
+            if (!tryStep(dx, dy) && !tryStep(dx, 0) && !tryStep(0, dy)) {
+              const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+              const valid = dirs.filter(([sx,sy]) => { const nx=bot.x+sx,ny=bot.y+sy; return nx>=0&&nx<map[0].length&&ny>=0&&ny<map.length&&map[ny][nx]!==1; });
+              if (valid.length) { const [sx,sy]=valid[Math.floor(Math.random()*valid.length)]; tryStep(sx,sy); }
+            }
+          }
+          // Hider bots stay put (they're hiding!)
+        });
+      });
+    }, 500);
     return () => clearInterval(interval);
   }, [inMG, mgState?.status, mgState?.type, isAdmin]);
 
@@ -3713,16 +3776,26 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           const inRange2=Math.abs((mgState.fnP2X??FN_P2_START)-(mgState.fnP1X??FN_P1_START))<=FN_LUNGE_RANGE;
           const btnS={height:52,minWidth:46,padding:'0 7px',borderRadius:10,cursor:'pointer',flexShrink:0,touchAction:'none',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,fontSize:17,transition:'all .1s'};
           return(<>
-            <button onPointerDown={e=>{e.preventDefault();fnStep(false);}} style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
+            <button
+              onPointerDown={e=>{e.preventDefault();fnStep(false);e.currentTarget._iv=setInterval(()=>fnStep(false),180);}}
+              onPointerUp={e=>{clearInterval(e.currentTarget._iv);}}
+              onPointerLeave={e=>{clearInterval(e.currentTarget._iv);}}
+              onPointerCancel={e=>{clearInterval(e.currentTarget._iv);}}
+              style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
               <span>◀</span><span style={{fontSize:7,fontWeight:700}}>Left</span>
             </button>
-            <button onPointerDown={e=>{e.preventDefault();fnLunge();}} style={{...btnS,border:`1px solid ${lCD||!inRange2?'rgba(255,255,255,.05)':'rgba(253,121,168,.4)'}`,background:lCD||!inRange2?'rgba(255,255,255,.03)':'rgba(253,121,168,.15)',color:lCD||!inRange2?'#444':'#fd79a8'}}>
+            <button onPointerDown={e=>{e.preventDefault();fnLunge();}} style={{...btnS,border:`1px solid ${lCD||!inRange2?'rgba(255,255,255,.05)':'rgba(253,121,168,.4)'}`,background:lCD||!inRange2?'rgba(255,255,255,.03)':'rgba(253,121,168,.15)',color:lCD||!inRange2?'#444':'#fd79a8',minWidth:52}}>
               <span>⚔️</span><span style={{fontSize:7,fontWeight:700}}>Lunge</span>
             </button>
-            <button onPointerDown={e=>{e.preventDefault();fnParry();}} style={{...btnS,border:`1px solid ${pCD?'rgba(255,255,255,.05)':'rgba(116,185,255,.4)'}`,background:pCD?'rgba(255,255,255,.03)':'rgba(116,185,255,.15)',color:pCD?'#444':'#74b9ff'}}>
+            <button onPointerDown={e=>{e.preventDefault();fnParry();}} style={{...btnS,border:`1px solid ${pCD?'rgba(255,255,255,.05)':'rgba(116,185,255,.4)'}`,background:pCD?'rgba(255,255,255,.03)':'rgba(116,185,255,.15)',color:pCD?'#444':'#74b9ff',minWidth:52}}>
               <span>🛡️</span><span style={{fontSize:7,fontWeight:700}}>Parry</span>
             </button>
-            <button onPointerDown={e=>{e.preventDefault();fnStep(true);}} style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
+            <button
+              onPointerDown={e=>{e.preventDefault();fnStep(true);e.currentTarget._iv=setInterval(()=>fnStep(true),180);}}
+              onPointerUp={e=>{clearInterval(e.currentTarget._iv);}}
+              onPointerLeave={e=>{clearInterval(e.currentTarget._iv);}}
+              onPointerCancel={e=>{clearInterval(e.currentTarget._iv);}}
+              style={{...btnS,border:`1px solid ${sCD?'rgba(255,255,255,.05)':'rgba(255,255,255,.15)'}`,background:sCD?'rgba(255,255,255,.03)':'rgba(255,255,255,.07)',color:sCD?'#444':'#ccc'}}>
               <span>▶</span><span style={{fontSize:7,fontWeight:700}}>Right</span>
             </button>
           </>);
