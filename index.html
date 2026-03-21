@@ -684,6 +684,7 @@ const MG_MAP_SHOOTER = (() => {
   return m;
 })();
 const SHOOTER_SPAWNS=[{x:2,y:2},{x:17,y:2},{x:2,y:13},{x:17,y:13},{x:9,y:2},{x:9,y:13},{x:2,y:7},{x:17,y:7}];
+const SHOOTER_HNS_SPAWNS=[{x:3,y:2},{x:17,y:2},{x:2,y:13},{x:17,y:13},{x:9,y:2},{x:9,y:13},{x:2,y:7},{x:17,y:7}];
 const SHOOTER_SPEED = 30; // tiles per second
 
 // ── Ping Pong constants ──────────────────────────────────────────
@@ -753,6 +754,59 @@ function AvatarSprite({emoji,color,size,glow,isIt,eliminated,isMe}){
       {isIt&&<div style={{position:'absolute',bottom:-2,right:-2,background:'#e74c3c',borderRadius:'50%',width:sz*.42,height:sz*.42,display:'flex',alignItems:'center',justifyContent:'center',fontSize:sz*.22,border:'1.5px solid #fff',zIndex:2}}>🏷</div>}
     </div>
   );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SOUNDS  (Web Audio API — no external files)
+═══════════════════════════════════════════════════════════════ */
+const _ac = { ctx: null };
+function getAC() {
+  if (!_ac.ctx) _ac.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  return _ac.ctx;
+}
+
+function playSend() {
+  try {
+    const ctx = getAC();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(520, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(820, ctx.currentTime + 0.07);
+    g.gain.setValueAtTime(0.15, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    o.start(); o.stop(ctx.currentTime + 0.15);
+  } catch(e) {}
+}
+
+function playReceive() {
+  try {
+    const ctx = getAC();
+    [880, 1100].forEach((freq, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + i * 0.09;
+      o.type = 'sine';
+      o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.10, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+      o.start(t); o.stop(t + 0.28);
+    });
+  } catch(e) {}
+}
+
+function playNotify() {
+  try {
+    const ctx = getAC();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(1050, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(700, ctx.currentTime + 0.14);
+    g.gain.setValueAtTime(0.08, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+    o.start(); o.stop(ctx.currentTime + 0.22);
+  } catch(e) {}
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -2104,6 +2158,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   const lastShootRef   = useRef(0);
   const lastDirRef     = useRef({dx:1,dy:0});
   const eliminatedRef  = useRef(false);
+  const mouseGameRef   = useRef({x:0, y:0});
+  const gameDivRef     = useRef(null);
+  const shootKnobJoyRef= useRef(null);
+  const shootBaseJoyRef= useRef(null);
+  const shootJoyDirRef = useRef({dx:0, dy:0, active:false});
   // Ping Pong refs
   const ppMgPlayersRef    = useRef({});
   const ppLocalPaddleRef  = useRef(PP_H/2 - PP_PADDLE_H/2);
@@ -2473,7 +2532,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       if (mgStateRef.current.type === 'pingpong') return;
       if (mgStateRef.current.type === 'shooter' && eliminatedRef.current) return;
       const curMGState = mgStateRef.current;
-      const map = getMGMap(curMGState.type);
+      const map = (curMGState.type === 'shooter' && curMGState.shooterMapMod)
+        ? getMGMap('hide') : getMGMap(curMGState.type);
       const p = mgPosRef.current;
       const nx = p.x + dx, ny = p.y + dy;
       if (ny < 0 || ny >= map.length || nx < 0 || nx >= (map[0]||[]).length) return;
@@ -2541,12 +2601,23 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   }, [move]);
 
   // Shooter: fire bullet — stores start pos + direction + timestamp only
-  const shoot = useCallback(() => {
+  const shoot = useCallback((overrideDx, overrideDy) => {
     if (!inMGRef.current || mgStateRef.current?.type !== 'shooter' || mgStateRef.current?.status !== 'active') return;
     if (eliminatedRef.current) return;
     if (Date.now() - lastShootRef.current < 600) return;
     lastShootRef.current = Date.now();
-    const {dx,dy} = lastDirRef.current;
+    let dx = overrideDx, dy = overrideDy;
+    if (dx === undefined || dy === undefined) {
+      if (!isTouch && gameDivRef.current) {
+        const rect = gameDivRef.current.getBoundingClientRect();
+        const rawDx = mouseGameRef.current.x - (rect.left + rect.width / 2);
+        const rawDy = mouseGameRef.current.y - (rect.top + rect.height / 2);
+        if (Math.abs(rawDx) >= Math.abs(rawDy)) { dx = rawDx > 0 ? 1 : -1; dy = 0; }
+        else { dx = 0; dy = rawDy > 0 ? 1 : -1; }
+      } else {
+        ({ dx, dy } = lastDirRef.current);
+      }
+    }
     const p = mgPosRef.current;
     const id = me + '_' + Date.now();
     FB.ref('minigame/bullets/'+id).set({ sx:p.x, sy:p.y, dx, dy, owner:me, ts:Date.now() });
@@ -2726,7 +2797,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   // Admin: hit detection + bullet expiry via interval (not Firebase listener to avoid loops)
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !isAdmin) return;
-    const map = getMGMap('shooter');
+    const map = mgState.shooterMapMod ? getMGMap('hide') : getMGMap('shooter');
     const interval = setInterval(() => {
       FB.ref('minigame/bullets').once('value').then(bSnap => {
         const bullets = bSnap.val() || {};
@@ -2777,7 +2848,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   // Admin: run bot AI for shooter
   useEffect(() => {
     if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !isAdmin) return;
-    const map = getMGMap('shooter');
+    const map = mgState.shooterMapMod ? getMGMap('hide') : getMGMap('shooter');
     const botMoveTs = {}; // last move time per bot
     const botShootTs = {}; // last shoot time per bot
     const interval = setInterval(() => {
@@ -2902,20 +2973,19 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         bots.forEach(([botId, bot]) => {
           const isIt = botId === itId;
           if (isIt) {
-            // Seeker bot: prioritize humans, fall back to other bots
-            const humans = Object.entries(allP).filter(([id,p]) => id !== botId && !p.isBot && !p.eliminated);
-            const otherBots = Object.entries(allP).filter(([id,p]) => id !== botId && p.isBot && !p.eliminated);
-            const targets = humans.length ? humans : otherBots;
-            if (!targets.length) return;
-            // Find nearest target
+            // Seeker bot: humans get priority, but go after nearest bot if it's much closer
+            const allTargets = Object.entries(allP).filter(([id,p]) => id !== botId && !p.eliminated);
+            if (!allTargets.length) return;
+            // Humans get a 0.5x distance weight so they're preferred unless a bot is significantly closer
             let nearestEntry = null, nearDist = Infinity;
-            targets.forEach(entry => {
+            allTargets.forEach(entry => {
               const [,t] = entry;
-              const d = Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y);
-              if (d < nearDist) { nearDist = d; nearestEntry = entry; }
+              const rawDist = Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y);
+              const weightedDist = t.isBot ? rawDist : rawDist * 0.25;
+              if (weightedDist < nearDist) { nearDist = weightedDist; nearestEntry = entry; }
             });
             // Tag if adjacent and past cooldown
-            const adjEntry = targets.find(([,t]) => Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y) <= 1);
+            const adjEntry = allTargets.find(([,t]) => Math.abs(t.x - bot.x) + Math.abs(t.y - bot.y) <= 1);
             if (adjEntry && now - (st.itSince||0) > 3000) {
               const [taggedId] = adjEntry;
               FB.ref('minigame/state').update({it:taggedId, itSince:now});
@@ -3730,6 +3800,56 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
   };
 
 
+  const ShootJoystick = () => {
+    const BR = 44, KR = 20, DEAD = 10;
+    const onMove = (clientX, clientY) => {
+      const base = shootBaseJoyRef.current; if (!base) return;
+      const r = base.getBoundingClientRect();
+      const rawX = clientX - (r.left + r.width / 2);
+      const rawY = clientY - (r.top + r.height / 2);
+      const dist = Math.sqrt(rawX * rawX + rawY * rawY);
+      const clamped = Math.min(dist, BR);
+      const angle = Math.atan2(rawY, rawX);
+      if (shootKnobJoyRef.current)
+        shootKnobJoyRef.current.style.transform = `translate(${Math.cos(angle)*clamped}px,${Math.sin(angle)*clamped}px)`;
+      if (dist > DEAD) {
+        let dx = 0, dy = 0;
+        if      (angle > -Math.PI/4  && angle <= Math.PI/4)    dx =  1;
+        else if (angle > Math.PI/4   && angle <= 3*Math.PI/4)  dy =  1;
+        else if (angle < -Math.PI/4  && angle >= -3*Math.PI/4) dy = -1;
+        else                                                     dx = -1;
+        shootJoyDirRef.current = {dx, dy, active:true};
+      } else {
+        shootJoyDirRef.current = {dx:0, dy:0, active:false};
+      }
+    };
+    const onEnd = () => {
+      if (shootJoyDirRef.current.active) shoot(shootJoyDirRef.current.dx, shootJoyDirRef.current.dy);
+      shootJoyDirRef.current = {dx:0, dy:0, active:false};
+      if (shootKnobJoyRef.current) shootKnobJoyRef.current.style.transform = 'translate(0px,0px)';
+    };
+    return (
+      <div ref={shootBaseJoyRef}
+        style={{position:'relative',width:BR*2,height:BR*2,flexShrink:0,touchAction:'none',userSelect:'none',WebkitUserSelect:'none'}}
+        onTouchStart={e=>{e.preventDefault();if(e.touches[0])onMove(e.touches[0].clientX,e.touches[0].clientY);}}
+        onTouchMove={e=>{e.preventDefault();if(e.touches[0])onMove(e.touches[0].clientX,e.touches[0].clientY);}}
+        onTouchEnd={onEnd} onTouchCancel={onEnd}>
+        <div style={{position:'absolute',inset:0,borderRadius:'50%',background:'rgba(255,68,68,.07)',border:'2px solid rgba(255,68,68,.28)'}}/>
+        <span style={{position:'absolute',top:4,left:'50%',transform:'translateX(-50%)',fontSize:10,color:'rgba(255,80,80,.4)',pointerEvents:'none'}}>↑</span>
+        <span style={{position:'absolute',bottom:4,left:'50%',transform:'translateX(-50%)',fontSize:10,color:'rgba(255,80,80,.4)',pointerEvents:'none'}}>↓</span>
+        <span style={{position:'absolute',left:5,top:'50%',transform:'translateY(-50%)',fontSize:10,color:'rgba(255,80,80,.4)',pointerEvents:'none'}}>←</span>
+        <span style={{position:'absolute',right:5,top:'50%',transform:'translateY(-50%)',fontSize:10,color:'rgba(255,80,80,.4)',pointerEvents:'none'}}>→</span>
+        <div ref={shootKnobJoyRef}
+          style={{position:'absolute',top:BR-KR,left:BR-KR,width:KR*2,height:KR*2,borderRadius:'50%',
+            background:'radial-gradient(circle at 38% 32%,#ff6060,#cc0000)',
+            border:'2.5px solid rgba(255,68,68,.9)',
+            boxShadow:'0 2px 14px rgba(255,68,68,.55),inset 0 1px 0 rgba(255,255,255,.25)',
+            display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,
+            pointerEvents:'none'}}>🔫</div>
+      </div>
+    );
+  };
+
   const ChatBar = () => (
     <div style={{background:'#111',borderTop:'1px solid rgba(255,255,255,.06)',flexShrink:0}}>
       <div ref={chatBoxRef} style={{height:90,overflowY:'auto',padding:'5px 14px'}}>
@@ -3749,9 +3869,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       </div>
       <div style={{display:'flex',gap:8,padding:'5px 14px 9px',alignItems:'center'}}>
         {isTouch&&!(inMG&&(mgState?.type==='pingpong'||mgState?.type==='boxing'||mgState?.type==='soccer'||mgState?.type==='fencing'))&&Joystick()}
-        {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&!mgPlayers[me]?.eliminated&&(
-          <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{width:56,height:56,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.85)',color:'#fff',fontSize:26,cursor:'pointer',flexShrink:0,boxShadow:'0 2px 14px rgba(255,68,68,.55)',touchAction:'none',zIndex:5}}>🔫</button>
-        )}
+        {inMG&&mgState?.type==='shooter'&&mgState?.status==='active'&&!mgPlayers[me]?.eliminated&&isTouch&&ShootJoystick()}
         {inMG&&mgState?.type==='boxing'&&mgState?.bxMatchStatus==='playing'&&(()=>{
           const match=mgState.bxRounds?.[mgState.bxRound]?.[mgState.bxMatch];
           if(!match||(match.p1!==me&&match.p2!==me)) return null;
@@ -4063,6 +4181,22 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                 FB.ref('minigame/players/'+botId).set(base);
               }
             }} style={{padding:'6px 16px',borderRadius:8,border:'1px solid rgba(162,155,254,.3)',background:'rgba(162,155,254,.1)',color:'#a29bfe',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>+ Add Computer Player</button>}
+            {/* Shooter map modifier toggle */}
+            {mgState?.type==='shooter'&&(
+              <div onClick={isAdmin?()=>FB.ref('minigame/state/shooterMapMod').set(!mgState.shooterMapMod):undefined}
+                style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:10,
+                  background:'rgba(255,255,255,.03)',border:`1px solid ${mgState.shooterMapMod?'rgba(67,181,129,.3)':'rgba(255,255,255,.06)'}`,
+                  cursor:isAdmin?'pointer':'default',transition:'border-color .2s',marginTop:4}}>
+                <span style={{fontSize:22}}>{mgState.shooterMapMod?'👁':'🔫'}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:'#e0e4ff'}}>Map: {mgState.shooterMapMod?'Hide & Seek Maze':'Default Arena'}</div>
+                  <div style={{fontSize:11,color:'#555'}}>{isAdmin?'Tap to switch':'Set by host'}</div>
+                </div>
+                {isAdmin&&<div style={{width:34,height:19,borderRadius:10,background:mgState.shooterMapMod?'#43b581':'rgba(255,255,255,.1)',position:'relative',transition:'background .2s',flexShrink:0}}>
+                  <div style={{position:'absolute',top:2.5,left:mgState.shooterMapMod?15:2.5,width:14,height:14,borderRadius:7,background:'#fff',transition:'left .18s'}}/>
+                </div>}
+              </div>
+            )}
             {!isAdmin&&<div style={{fontSize:12,color:'#444'}}>Waiting for {mgState.startedBy} to start the game…</div>}
             {isAdmin&&<div style={{fontSize:12,color:'#555'}}>Press <span style={{color:'#43b581',fontWeight:700}}>▶ Start</span> when everyone has joined.</div>}
           </div>
@@ -4576,7 +4710,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
               })}
             </div>
           )) : null;
-          const shooterTiles = mgState.type==='shooter' ? getMGMap('shooter').map((row,ry)=>(
+          const shooterBaseMap = mgState.type==='shooter'
+            ? (mgState.shooterMapMod ? getMGMap('hide') : getMGMap('shooter'))
+            : null;
+          const shooterTiles = shooterBaseMap ? shooterBaseMap.map((row,ry)=>(
             <div key={ry} style={{display:'flex'}}>
               {row.map((tile,rx)=>(
                 <div key={rx} style={{width:TILE,height:TILE,flexShrink:0,
@@ -4587,7 +4724,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
           )) : null;
           return (
           <div style={{flex:1,display:'flex',overflow:'hidden'}}>
-            <div style={{flex:1,overflow:'hidden',position:'relative',background:mgState.type==='hide'?'#050508':mgState.type==='shooter'?'#1a1a2e':'#080814'}}>
+            <div ref={gameDivRef}
+            style={{flex:1,overflow:'hidden',position:'relative',background:mgState.type==='hide'?'#050508':mgState.type==='shooter'?'#1a1a2e':'#080814',cursor:mgState.type==='shooter'&&!mgPlayers[me]?.eliminated&&!isTouch?'crosshair':'default'}}
+            onMouseMove={e=>{if(mgState.type==='shooter')mouseGameRef.current={x:e.clientX,y:e.clientY};}}
+            onClick={e=>{if(mgState.type==='shooter'&&!isTouch&&mgState.status==='active'&&!mgPlayers[me]?.eliminated)shoot();}}>
               <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none'}}>
                 <div style={{position:'absolute',top:`calc(50% - ${mgPos.y*TILE+TILE/2}px)`,left:`calc(50% - ${mgPos.x*TILE+TILE/2}px)`}}>
                   {fogTiles||shooterTiles||mgTiles}
@@ -4619,8 +4759,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                   {renderPlayers(mgPlayers, mgPos, true, hnsVisible)}
                 </div>
               </div>
-              {mgState.type==='shooter'&&!mgPlayers[me]?.eliminated&&(
-                <button onPointerDown={e=>{e.preventDefault();shoot();}} style={{position:'absolute',bottom:16,right:16,width:60,height:60,borderRadius:'50%',border:'none',background:'rgba(255,68,68,.8)',color:'#fff',fontSize:24,cursor:'pointer',zIndex:10,boxShadow:'0 2px 12px rgba(255,68,68,.5)'}}>🔫</button>
+              {mgState.type==='shooter'&&!mgPlayers[me]?.eliminated&&!isTouch&&(
+                <div style={{position:'absolute',bottom:12,right:12,fontSize:10,color:'rgba(255,255,255,.22)',pointerEvents:'none',userSelect:'none'}}>Click to shoot · Space</div>
               )}
             </div>
 
@@ -4791,6 +4931,7 @@ function MainApp({ me, onLogout }) {
   const [incomingChallengeId,setIncomingChallengeId]= useState(null);
   const [quizTarget,       setQuizTarget]       = useState(null);
   const lastSeenRef = useRef({});
+  const lastMsgCountRef = useRef({});
 
   // Initialize default channels, then listen
   useEffect(() => {
@@ -4832,10 +4973,17 @@ function MainApp({ me, onLogout }) {
       const list = Object.entries(data)
         .map(([k, v]) => ({ id: k, ...v }))
         .sort((a, b) => a.ts - b.ts);
+      const prev = lastMsgCountRef.current[activeCh] || 0;
+      if (prev > 0 && list.length > prev) {
+        const newMsgs = list.slice(prev);
+        if (newMsgs.some(m => m.author !== me && !m.sys)) playReceive();
+        else if (newMsgs.some(m => m.author !== me && m.sys)) { /* no sound for sys */ }
+      }
+      lastMsgCountRef.current[activeCh] = list.length;
       setMsgs(p => ({ ...p, [activeCh]: list }));
     });
     return () => ref.off('value');
-  }, [activeCh]);
+  }, [activeCh, me]);
 
   // Listen to users
   useEffect(() => {
@@ -4943,6 +5091,17 @@ function MainApp({ me, onLogout }) {
     return () => clearTimeout(timer);
   }, [activeQuiz]);
 
+  // Respawn to HNS positions when shooter+HNS modifier game goes active
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'shooter' || mgState.status !== 'active' || !mgState.shooterMapMod) return;
+    const pKeys = Object.keys(mgPlayers);
+    const myIdx = pKeys.indexOf(me);
+    const sp = SHOOTER_HNS_SPAWNS[myIdx >= 0 ? myIdx % SHOOTER_HNS_SPAWNS.length : 0];
+    mgPosRef.current = sp;
+    setMgPos(sp);
+    FB.ref('minigame/players/' + me).update({ x: sp.x, y: sp.y, ts: Date.now() });
+  }, [mgState?.activeSince, inMG]);
+
   // Unread badge: track last-seen per channel
   useEffect(() => {
     lastSeenRef.current[activeCh] = Date.now();
@@ -4959,7 +5118,10 @@ function MainApp({ me, onLogout }) {
       if (chId === activeCh) return;
       const ls = lastSeenRef.current[chId] || 0;
       const count = (msgs[chId] || []).filter(m => m.ts > ls && m.author !== me && !m.sys).length;
-      setUnread(p => ({ ...p, [chId]: count }));
+      setUnread(p => {
+        if (count > (p[chId] || 0)) playNotify();
+        return { ...p, [chId]: count };
+      });
     });
   }, [msgs, activeCh, me]);
 
@@ -4967,6 +5129,7 @@ function MainApp({ me, onLogout }) {
     const payload = { author: me, content: content || '', ts: Date.now() };
     if (image) payload.image = image;
     FB.ref('messages/' + activeCh).push(payload);
+    playSend();
   }, [me, activeCh]);
 
   const addAura = useCallback((username, delta) => {
