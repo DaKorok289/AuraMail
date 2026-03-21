@@ -2553,10 +2553,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         const bullets = bSnap.val() || {};
         FB.ref('minigame/players').once('value').then(pSnap => {
           const allP = pSnap.val() || {};
-          // End game if only 1 alive AND at least 2 players have joined (prevents auto-win before everyone loads in)
-          const allEntries = Object.entries(allP);
-          const aliveAll = allEntries.filter(([,p])=>!p.eliminated);
-          if (allEntries.length >= 2 && aliveAll.length <= 1) {
+          // Safety net: end game if only 1 alive, but only after game has been active 8s
+          // (prevents false-end from brief disconnects or slow joins mid-game)
+          const aliveAll = Object.entries(allP).filter(([,p])=>!p.eliminated);
+          const gameAge = Date.now() - (mgState.activeSince||Date.now());
+          if (gameAge > 8000 && aliveAll.length <= 1 && Object.keys(allP).length >= 2) {
             FB.ref('minigame/state').once('value').then(st => {
               if (st.val()?.status === 'active') FB.ref('minigame/state').update({status:'ended',winner:aliveAll[0]?.[0]||null,type:'shooter'});
             });
@@ -2630,19 +2631,28 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
         if(p1HP<=0||p2HP<=0){
           const w=p1HP>0?match.p1:match.p2;
           Object.assign(ups,{bxMatchStatus:'roundOver',bxRoundWinner:w});
-          Promise.all(rm).then(()=>{
-            FB.ref('minigame/state').update(ups);
-            const snapRounds=JSON.parse(JSON.stringify(rounds));
-            setTimeout(()=>bxHandleMatchWin(w,p1HP,p2HP,snapRounds,rnd,mch),2500);
-          });
-        } else {
-          Promise.all(rm).then(()=>FB.ref('minigame/state').update(ups));
         }
+        Promise.all(rm).then(()=>FB.ref('minigame/state').update(ups));
         bxProcessRef.current=false;
       }).catch(()=>{bxProcessRef.current=false;});
     },80);
     return ()=>clearInterval(interval);
-  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, isAdmin, bxHandleMatchWin]);
+  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, isAdmin]);
+
+  // Boxing host: 'roundOver' → advance bracket after 2.5s (runs on game creator only)
+  useEffect(() => {
+    if (!inMG || !mgState || mgState.type !== 'boxing' || mgState.status !== 'active') return;
+    if (mgState.startedBy !== me || mgState.bxMatchStatus !== 'roundOver') return;
+    const rounds = mgState.bxRounds;
+    const rnd = mgState.bxRound, mch = mgState.bxMatch;
+    const winner = mgState.bxRoundWinner;
+    const p1HP = mgState.bxP1HP ?? 0, p2HP = mgState.bxP2HP ?? 0;
+    if (!winner || !rounds) return;
+    const timer = setTimeout(() => {
+      bxHandleMatchWin(winner, p1HP, p2HP, JSON.parse(JSON.stringify(rounds)), rnd, mch);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, bxHandleMatchWin]);
 
   // Sync raw bullet data from Firebase
   const [bullets2, setBullets2] = useState([]);
@@ -2740,6 +2750,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     if (mgState?.type === 'hide' && pList.length > 0)
       updates['minigame/state/it'] = pList[Math.floor(Math.random()*pList.length)];
     updates['minigame/state/itSince'] = Date.now();
+    updates['minigame/state/activeSince'] = Date.now();
     if (mgState?.type === 'pingpong') {
       const allP = [...new Set([...pList, me])];
       const rounds = generatePPRound1(allP);
