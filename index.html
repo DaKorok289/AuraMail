@@ -2488,12 +2488,8 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       return;
     }
     const timer = setTimeout(() => {
-      FB.ref('minigame/state').once('value').then(snap => {
-        const st = snap.val();
-        if (!st || st.ppMatchStatus !== 'waiting') return;
-        const ang = (Math.random()*40-20)*Math.PI/180, dir = Math.random()>.5?1:-1;
-        FB.ref('minigame/state').update({ppMatchStatus:'playing',ppBall:{x:PP_W/2,y:PP_H/2,vx:PP_SPEED*dir*Math.cos(ang),vy:PP_SPEED*Math.sin(ang),ts:Date.now()},ppS1:0,ppS2:0});
-      });
+      const ang = (Math.random()*40-20)*Math.PI/180, dir = Math.random()>.5?1:-1;
+      FB.ref('minigame/state').update({ppMatchStatus:'playing',ppBall:{x:PP_W/2,y:PP_H/2,vx:PP_SPEED*dir*Math.cos(ang),vy:PP_SPEED*Math.sin(ang),ts:Date.now()},ppS1:0,ppS2:0});
     }, 2000);
     return () => clearTimeout(timer);
   }, [inMG, mgState?.ppMatchStatus, mgState?.ppRound, mgState?.ppMatch, mgState?.startedBy, me, isAdmin, ppAdvanceRound]);
@@ -2574,11 +2570,11 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       // Score
       if(x<0){
         s2++; done=true;
-        if(s2>=PP_WIN_SCORE){ FB.ref('minigame/state').update({ppS2:s2,ppBall:null}); ppHandleMatchWin(match.p2,s1,s2,mgState.ppRound,mgState.ppMatch); }
+        if(s2>=PP_WIN_SCORE){ FB.ref('minigame/state').update({ppS2:s2,ppBall:null}); ppHandleMatchWin(match.p2,s1,s2,mgState.ppRound,mgState.ppMatch,rounds); }
         else{ resetBall(1); done=false; FB.ref('minigame/state').update({ppS2:s2,ppBall:{x,y,vx,vy,ts:now}}); }
       } else if(x>PP_W){
         s1++; done=true;
-        if(s1>=PP_WIN_SCORE){ FB.ref('minigame/state').update({ppS1:s1,ppBall:null}); ppHandleMatchWin(match.p1,s1,s2,mgState.ppRound,mgState.ppMatch); }
+        if(s1>=PP_WIN_SCORE){ FB.ref('minigame/state').update({ppS1:s1,ppBall:null}); ppHandleMatchWin(match.p1,s1,s2,mgState.ppRound,mgState.ppMatch,rounds); }
         else{ resetBall(-1); done=false; FB.ref('minigame/state').update({ppS1:s1,ppBall:{x,y,vx,vy,ts:now}}); }
       } else if(bounced||now-lastWrite>33){ lastWrite=now; FB.ref('minigame/state/ppBall').set({x,y,vx,vy,ts:now}); }
       if(!done) rafId=requestAnimationFrame(loop);
@@ -3275,7 +3271,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const p1HP = mgState.bxP1HP ?? 0, p2HP = mgState.bxP2HP ?? 0;
     if (!winner || !rounds) return;
     const timer = setTimeout(() => {
-      bxHandleMatchWin(winner, p1HP, p2HP, rnd, mch);
+      bxHandleMatchWin(winner, p1HP, p2HP, rnd, mch, rounds);
     }, 2500);
     return () => clearTimeout(timer);
   }, [inMG, mgState?.bxMatchStatus, mgState?.bxRound, mgState?.bxMatch, mgState?.startedBy, me, isAdmin, bxHandleMatchWin]);
@@ -3312,7 +3308,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const p1HP = mgState.fnP1HP ?? 0, p2HP = mgState.fnP2HP ?? 0;
     if (!winner || !rounds) return;
     const timer = setTimeout(() => {
-      fnHandleMatchWin(winner, p1HP, p2HP, rnd, mch);
+      fnHandleMatchWin(winner, p1HP, p2HP, rnd, mch, rounds);
     }, 2500);
     return () => clearTimeout(timer);
   }, [inMG, mgState?.fnMatchStatus, mgState?.fnRound, mgState?.fnMatch, mgState?.startedBy, me, isAdmin, fnHandleMatchWin]);
@@ -3810,18 +3806,14 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     FB.ref('minigame/state').update({ppRounds:rounds,ppRound:roundIdx+1,ppMatch:0,ppMatchStatus:'waiting',ppBall:null,ppS1:0,ppS2:0});
   }, []);
 
-  const ppHandleMatchWin = useCallback((winner, s1, s2, roundIdx, matchIdx) => {
-    FB.ref('minigame/state').once('value').then(snap => {
-      const st = snap.val();
-      if (!st || st.ppMatchStatus !== 'playing') return;
-      const nr = JSON.parse(JSON.stringify(st.ppRounds || []));
-      if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
-      nr[roundIdx][matchIdx].winner=winner; nr[roundIdx][matchIdx].s1=s1; nr[roundIdx][matchIdx].s2=s2;
-      const allDone = nr[roundIdx].every(m => m.winner !== null);
-      if (allDone) { ppAdvanceRound(nr, roundIdx); return; }
-      const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
-      FB.ref('minigame/state').update({ppRounds:nr,ppMatch:nextMi!==-1?nextMi:matchIdx+1,ppMatchStatus:'waiting',ppBall:null,ppS1:0,ppS2:0});
-    });
+  const ppHandleMatchWin = useCallback((winner, s1, s2, roundIdx, matchIdx, currentRounds) => {
+    const nr = JSON.parse(JSON.stringify(currentRounds || []));
+    if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
+    nr[roundIdx][matchIdx].winner=winner; nr[roundIdx][matchIdx].s1=s1; nr[roundIdx][matchIdx].s2=s2;
+    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    if (allDone) { ppAdvanceRound(nr, roundIdx); return; }
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    FB.ref('minigame/state').update({ppRounds:nr,ppMatch:nextMi!==-1?nextMi:matchIdx+1,ppMatchStatus:'waiting',ppBall:null,ppS1:0,ppS2:0});
   }, [ppAdvanceRound]);
 
   const bxAdvanceRound = useCallback((rounds, roundIdx) => {
@@ -3841,21 +3833,17 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     FB.ref('minigame/state').update({bxRounds:rounds,bxRound:roundIdx+1,bxMatch:0,bxMatchStatus:'waiting',bxP1HP:BX_HP,bxP2HP:BX_HP});
   }, []);
 
-  const bxHandleMatchWin = useCallback((winner, p1HP, p2HP, roundIdx, matchIdx) => {
-    FB.ref('minigame/state').once('value').then(snap => {
-      const st = snap.val();
-      if (!st || st.bxMatchStatus !== 'roundOver') return;
-      const nr = JSON.parse(JSON.stringify(st.bxRounds || []));
-      if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
-      nr[roundIdx][matchIdx].winner=winner;
-      nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
-      const allDone = nr[roundIdx].every(m => m.winner !== null);
-      if (allDone) { bxAdvanceRound(nr, roundIdx); return; }
-      const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
-      FB.ref('minigame/bxPunches').remove();
-      FB.ref('minigame/bxBlocks').remove();
-      FB.ref('minigame/state').update({bxRounds:nr,bxMatch:nextMi!==-1?nextMi:matchIdx+1,bxMatchStatus:'waiting',bxP1HP:BX_HP,bxP2HP:BX_HP});
-    });
+  const bxHandleMatchWin = useCallback((winner, p1HP, p2HP, roundIdx, matchIdx, currentRounds) => {
+    const nr = JSON.parse(JSON.stringify(currentRounds || []));
+    if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
+    nr[roundIdx][matchIdx].winner=winner;
+    nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
+    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    if (allDone) { bxAdvanceRound(nr, roundIdx); return; }
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    FB.ref('minigame/bxPunches').remove();
+    FB.ref('minigame/bxBlocks').remove();
+    FB.ref('minigame/state').update({bxRounds:nr,bxMatch:nextMi!==-1?nextMi:matchIdx+1,bxMatchStatus:'waiting',bxP1HP:BX_HP,bxP2HP:BX_HP});
   }, [bxAdvanceRound]);
 
   const fnAdvanceRound = useCallback((rounds, roundIdx) => {
@@ -3875,21 +3863,17 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     FB.ref('minigame/state').update({fnRounds:rounds,fnRound:roundIdx+1,fnMatch:0,fnMatchStatus:'waiting',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
   }, []);
 
-  const fnHandleMatchWin = useCallback((winner, p1HP, p2HP, roundIdx, matchIdx) => {
-    FB.ref('minigame/state').once('value').then(snap => {
-      const st = snap.val();
-      if (!st || st.fnMatchStatus !== 'roundOver') return;
-      const nr = JSON.parse(JSON.stringify(st.fnRounds || []));
-      if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
-      nr[roundIdx][matchIdx].winner=winner;
-      nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
-      const allDone = nr[roundIdx].every(m => m.winner !== null);
-      if (allDone) { fnAdvanceRound(nr, roundIdx); return; }
-      const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
-      FB.ref('minigame/fnLunges').remove();
-      FB.ref('minigame/fnParries').remove();
-      FB.ref('minigame/state').update({fnRounds:nr,fnMatch:nextMi!==-1?nextMi:matchIdx+1,fnMatchStatus:'waiting',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
-    });
+  const fnHandleMatchWin = useCallback((winner, p1HP, p2HP, roundIdx, matchIdx, currentRounds) => {
+    const nr = JSON.parse(JSON.stringify(currentRounds || []));
+    if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
+    nr[roundIdx][matchIdx].winner=winner;
+    nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
+    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    if (allDone) { fnAdvanceRound(nr, roundIdx); return; }
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    FB.ref('minigame/fnLunges').remove();
+    FB.ref('minigame/fnParries').remove();
+    FB.ref('minigame/state').update({fnRounds:nr,fnMatch:nextMi!==-1?nextMi:matchIdx+1,fnMatchStatus:'waiting',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
   }, [fnAdvanceRound]);
 
   const endMinigame = useCallback(() => {
