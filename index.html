@@ -2315,7 +2315,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       if (myBet) {
         if (myBet.pick === mgResult.winner) {
           // Won the bet — pay out 2x
-          addAura(me, myBet.amount * 2);
+          onEarnAura(myBet.amount * 2);
         }
         // (losing bet: money already deducted when placed — nothing more to do)
         FB.ref('minigame/bets/'+me).remove();
@@ -3918,20 +3918,20 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     // Refund any existing bet first
     FB.ref('minigame/bets/'+me).once('value').then(snap => {
       const existing = snap.val();
-      if (existing) addAura(me, existing.amount);
-      addAura(me, -cost);
+      if (existing) onEarnAura(existing.amount);
+      onEarnAura(-cost);
       FB.ref('minigame/bets/'+me).set({ pick, amount: cost });
     });
-  }, [me, addAura]);
+  }, [me, onEarnAura]);
 
   const cancelBet = useCallback(() => {
     FB.ref('minigame/bets/'+me).once('value').then(snap => {
       const existing = snap.val();
-      if (existing) addAura(me, existing.amount);
+      if (existing) onEarnAura(existing.amount);
       FB.ref('minigame/bets/'+me).remove();
     });
     setBetPick(''); setBetAmt(10);
-  }, [me, addAura]);
+  }, [me, onEarnAura]);
 
   const sendChat = () => {
     const t = chatInp.trim(); if (!t || !avatar) return;
