@@ -2479,10 +2479,10 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const rounds = mgState.ppRounds; if (!rounds) return;
     const match = rounds[mgState.ppRound]?.[mgState.ppMatch];
     if (!match) return;
-    if (match.p2 === null) {
+    if (match.p2 == null) {
       // bye — auto-advance
       const ri = mgState.ppRound;
-      const nextMi = rounds[ri].findIndex((m,i) => i > mgState.ppMatch && m.p2 !== null && m.winner === null);
+      const nextMi = rounds[ri].findIndex((m,i) => i > mgState.ppMatch && m.p2 != null && m.winner == null);
       if (nextMi !== -1) { FB.ref('minigame/state').update({ppMatch:nextMi,ppS1:0,ppS2:0,ppBall:null}); }
       else { ppAdvanceRound(rounds, ri); }
       return;
@@ -2501,9 +2501,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const rounds = mgState.bxRounds; if (!rounds) return;
     const match = rounds[mgState.bxRound]?.[mgState.bxMatch];
     if (!match) return;
-    if (match.p2 === null) {
+    if (match.p2 == null) {
       const ri = mgState.bxRound;
-      const nextMi = rounds[ri].findIndex((m,i) => i>mgState.bxMatch && m.p2!==null && m.winner===null);
+      const nextMi = rounds[ri].findIndex((m,i) => i>mgState.bxMatch && m.p2!=null && m.winner==null);
       if (nextMi !== -1) FB.ref('minigame/state').update({bxMatch:nextMi,bxP1HP:BX_HP,bxP2HP:BX_HP});
       else bxAdvanceRound(rounds, ri);
       return;
@@ -3283,9 +3283,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const rounds = mgState.fnRounds; if (!rounds) return;
     const match = rounds[mgState.fnRound]?.[mgState.fnMatch];
     if (!match) return;
-    if (match.p2 === null) {
+    if (match.p2 == null) {
       const ri = mgState.fnRound;
-      const nextMi = rounds[ri].findIndex((m,i) => i>mgState.fnMatch && m.p2!==null && m.winner===null);
+      const nextMi = rounds[ri].findIndex((m,i) => i>mgState.fnMatch && m.p2!=null && m.winner==null);
       if (nextMi !== -1) FB.ref('minigame/state').update({fnMatch:nextMi,fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
       else fnAdvanceRound(rounds, ri);
       return;
@@ -3810,9 +3810,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     const nr = JSON.parse(JSON.stringify(currentRounds || []));
     if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
     nr[roundIdx][matchIdx].winner=winner; nr[roundIdx][matchIdx].s1=s1; nr[roundIdx][matchIdx].s2=s2;
-    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    const allDone = nr[roundIdx].every(m => m.winner != null);
     if (allDone) { ppAdvanceRound(nr, roundIdx); return; }
-    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!=null && m.winner==null);
     FB.ref('minigame/state').update({ppRounds:nr,ppMatch:nextMi!==-1?nextMi:matchIdx+1,ppMatchStatus:'waiting',ppBall:null,ppS1:0,ppS2:0});
   }, [ppAdvanceRound]);
 
@@ -3838,9 +3838,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
     nr[roundIdx][matchIdx].winner=winner;
     nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
-    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    const allDone = nr[roundIdx].every(m => m.winner != null);
     if (allDone) { bxAdvanceRound(nr, roundIdx); return; }
-    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!=null && m.winner==null);
     FB.ref('minigame/bxPunches').remove();
     FB.ref('minigame/bxBlocks').remove();
     FB.ref('minigame/state').update({bxRounds:nr,bxMatch:nextMi!==-1?nextMi:matchIdx+1,bxMatchStatus:'waiting',bxP1HP:BX_HP,bxP2HP:BX_HP});
@@ -3868,9 +3868,9 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
     if (!nr[roundIdx] || !nr[roundIdx][matchIdx]) return;
     nr[roundIdx][matchIdx].winner=winner;
     nr[roundIdx][matchIdx].s1=p1HP; nr[roundIdx][matchIdx].s2=p2HP;
-    const allDone = nr[roundIdx].every(m => m.winner !== null);
+    const allDone = nr[roundIdx].every(m => m.winner != null);
     if (allDone) { fnAdvanceRound(nr, roundIdx); return; }
-    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!==null && m.winner===null);
+    const nextMi = nr[roundIdx].findIndex((m,i) => i>matchIdx && m.p2!=null && m.winner==null);
     FB.ref('minigame/fnLunges').remove();
     FB.ref('minigame/fnParries').remove();
     FB.ref('minigame/state').update({fnRounds:nr,fnMatch:nextMi!==-1?nextMi:matchIdx+1,fnMatchStatus:'waiting',fnP1HP:FN_HP,fnP2HP:FN_HP,fnP1X:FN_P1_START,fnP2X:FN_P2_START});
