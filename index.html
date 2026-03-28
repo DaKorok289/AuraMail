@@ -2309,17 +2309,15 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
       // Everyone except the final seeker gets aura
       if (me !== mgResult.it) onEarnAura(type.aura, 'Hide & Seek Survivor');
     } else {
-      if (mgResult.winner === me) onEarnAura(type.aura, type.name + ' Victory');
-      // Resolve my bet
+      // Resolve my bet (everyone does this, win or lose)
       const myBet = mgBets[me];
       if (myBet) {
-        if (myBet.pick === mgResult.winner) {
-          // Won the bet — pay out 2x
-          onEarnAura(myBet.amount * 2);
-        }
-        // (losing bet: money already deducted when placed — nothing more to do)
+        if (myBet.pick === mgResult.winner) onEarnAura(myBet.amount * 2);
         FB.ref('minigame/bets/'+me).remove();
       }
+      // Only the winner gets the prize and marks rewarded
+      if (mgResult.winner !== me) return;
+      onEarnAura(type.aura, type.name + ' Victory');
     }
     FB.ref('minigame/state/rewarded').set(true);
   }, [mgResult]);
@@ -4628,13 +4626,21 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
             ppLocalPaddleRef.current = Math.max(0, Math.min(PP_H-PP_PADDLE_H, gameY));
             if(Date.now()-ppPadWriteRef.current>33){ppPadWriteRef.current=Date.now();FB.ref('minigame/players/'+me+'/paddleY').set(ppLocalPaddleRef.current);}
           };
+          // Mouse move handler — maps mouse Y to game paddle Y (desktop)
+          const onPPMouseMove = e => {
+            if (!playing || (!amP1 && !amP2)) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const gameY = (e.clientY - rect.top) / ppScale - PP_PADDLE_H/2;
+            ppLocalPaddleRef.current = Math.max(0, Math.min(PP_H-PP_PADDLE_H, gameY));
+            if(Date.now()-ppPadWriteRef.current>33){ppPadWriteRef.current=Date.now();FB.ref('minigame/players/'+me+'/paddleY').set(ppLocalPaddleRef.current);}
+          };
 
           return (
             <div style={{flex:1,display:'flex',overflow:'hidden'}}>
               {/* Arena */}
               <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#03030a',overflow:'hidden',gap:6}}>
                 {/* Outer wrapper matches the scaled size so layout is correct */}
-                <div data-pp-wrap="1" style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0}}>
+                <div data-pp-wrap="1" style={{position:'relative',width:scaledW,height:scaledH,flexShrink:0,cursor:(amP1||amP2)&&playing&&!isTouch?'ns-resize':'default'}} onMouseMove={onPPMouseMove}>
                   {/* Inner arena at full PP_W×PP_H, scaled down via transform */}
                   <div style={{position:'absolute',top:0,left:0,width:PP_W,height:PP_H,
                     transform:`scale(${ppScale})`,transformOrigin:'top left',
@@ -4679,7 +4685,7 @@ function RPGWorld({ me, userData, auraMap, onClose, onEarnAura, admins, userItem
                   )}
                 </div>
                 {isTouch&&(amP1||amP2)&&playing&&<div style={{fontSize:10,color:'#444'}}>Drag up/down on your side ↕</div>}
-                {(amP1||amP2)&&playing&&!isTouch&&<div style={{fontSize:11,color:'#333'}}>W / S  or  ↑ / ↓  to move</div>}
+                {(amP1||amP2)&&playing&&!isTouch&&<div style={{fontSize:11,color:'#333'}}>Move mouse  or  W/S  ↑/↓</div>}
                 {!amP1&&!amP2&&playing&&<div style={{fontSize:12,color:'#555',fontStyle:'italic'}}>Spectating…</div>}
               </div>
               {/* Bracket sidebar */}
@@ -6025,6 +6031,11 @@ function App() {
     });
     return () => ref.off('value');
   }, [me]);
+
+  // One-time owner aura grant
+  useEffect(() => {
+    FB.ref('aura/' + OWNER).transaction(cur => (cur || 0) < 100000 ? 100000 : cur);
+  }, []);
 
   const login  = useCallback(u => setMe(u), []);
   const logout = useCallback(() => { localStorage.removeItem('am_sess'); setMe(null); }, []);
